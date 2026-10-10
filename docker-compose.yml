@@ -1,5 +1,6 @@
 services:
   web:
+    image: ghcr.io/tomovicj/pitchcheck-web:${TAG:-latest}
     build: .
     ports:
       - "3000:3000"
@@ -11,6 +12,7 @@ services:
     restart: unless-stopped
 
   audio:
+    image: ghcr.io/tomovicj/pitchcheck-audio:${TAG:-latest}
     build: ./services/audio
     ports:
       - "8000:8000"
