@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 import parselmouth
+import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from transformers import GenerationConfig, pipeline
@@ -28,7 +29,10 @@ models = {}
 
 
 def load_models():
-    models["gemma"] = pipeline(task="any-to-any", model=GEMMA_MODEL, device_map="auto", dtype="auto")
+    # On CPU, "auto" offloads layers to disk when RAM looks short, and the pipeline cannot run that.
+    # Load everything into RAM instead; the bf16 weights need about 10 GB for E2B.
+    device_map = "auto" if torch.cuda.is_available() else "cpu"
+    models["gemma"] = pipeline(task="any-to-any", model=GEMMA_MODEL, device_map=device_map, dtype="auto")
     config = GenerationConfig.from_pretrained(GEMMA_MODEL)
     # Greedy decoding so the same recording gets the same scores
     config.do_sample = False
