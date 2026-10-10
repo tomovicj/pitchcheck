@@ -99,6 +99,14 @@ uvicorn app.main:app --port 8000
 
 The audio service needs Python 3.12 and ffmpeg on the PATH. The web app reaches it through `AUDIO_SERVICE_URL`, which defaults to `http://localhost:8000`.
 
+`GEMMA_DTYPE` sets the dtype the model is loaded in. The default `auto` uses the checkpoint's bf16; GPUs without bf16, such as the T4, need `float16`.
+
+On a Kaggle GPU, for a laptop that cannot run Gemma: import `notebooks/kaggle.ipynb` into Kaggle, follow its first cell (GPU, Internet, `HF_TOKEN` secret) and run all cells. It clones `main` from GitHub, starts the audio service and prints a Cloudflare tunnel URL. Run the web app locally against it:
+
+```bash
+AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
+```
+
 ## Repository layout
 
 | Path | Contents |
@@ -110,6 +118,7 @@ The audio service needs Python 3.12 and ffmpeg on the PATH. The web app reaches 
 | `services/audio/scripts/probe.py` | Runs the per-segment Gemma prompt on one clip of 30 s or less, for testing what Gemma hears |
 | `services/audio/scripts/smoke_test.py` | Runs the service end to end with a tiny random Gemma 4; CI runs it in the audio image before tagging |
 | `docker-compose.yml` | The `web` and `audio` services |
+| `notebooks/kaggle.ipynb` | Runs the audio service on a Kaggle GPU behind a Cloudflare tunnel |
 
 ## Privacy
 

@@ -1,13 +1,16 @@
 import http from "node:http";
+import https from "node:https";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 // Uses node:http rather than fetch: fetch (undici) buffers a streamed request body in memory,
 // which for large video uploads means holding the whole file. node:http respects backpressure.
+// node:https is needed when the audio service sits behind an HTTPS tunnel, e.g. on Kaggle.
 function forward(url: string, contentType: string, body: ReadableStream<Uint8Array>) {
+  const client = new URL(url).protocol === "https:" ? https : http;
   return new Promise<http.IncomingMessage>((resolve, reject) => {
-    const req = http.request(url, { method: "POST", headers: { "content-type": contentType } });
+    const req = client.request(url, { method: "POST", headers: { "content-type": contentType } });
     req.on("response", resolve);
     req.on("error", reject);
     pipeline(Readable.fromWeb(body as NodeReadableStream<Uint8Array>), req).catch(reject);

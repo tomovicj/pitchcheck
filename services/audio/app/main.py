@@ -20,6 +20,8 @@ from transformers import AutoModelForMultimodalLM, AutoProcessor, GenerationConf
 
 SAMPLE_RATE = 16_000
 GEMMA_MODEL = os.getenv("GEMMA_MODEL", "google/gemma-4-E2B-it")
+# "auto" uses the checkpoint's dtype (bf16); GPUs without bf16, such as the T4, need float16
+GEMMA_DTYPE = os.getenv("GEMMA_DTYPE", "auto")
 # Gemma accepts audio clips of at most 30 seconds
 MAX_SEGMENT_S = 30.0
 MIN_SEGMENT_S = 1.0
@@ -35,7 +37,7 @@ def load_models():
     # On CPU, "auto" offloads layers to disk when RAM looks short, which makes generation unusably slow.
     # Load everything into RAM instead; the bf16 weights need about 10 GB for E2B.
     device_map = "auto" if torch.cuda.is_available() else "cpu"
-    models["gemma"] = AutoModelForMultimodalLM.from_pretrained(GEMMA_MODEL, device_map=device_map, dtype="auto")
+    models["gemma"] = AutoModelForMultimodalLM.from_pretrained(GEMMA_MODEL, device_map=device_map, dtype=GEMMA_DTYPE)
     config = GenerationConfig.from_pretrained(GEMMA_MODEL)
     # Greedy decoding so the same recording gets the same scores
     config.do_sample = False
@@ -165,7 +167,7 @@ def generate(messages: list[dict]) -> str:
     processor, model = models["processor"], models["gemma"]
     inputs = processor.apply_chat_template(
         messages, tokenize=True, return_dict=True, return_tensors="pt", add_generation_prompt=True
-    ).to(model.device)
+    ).to(model.device, dtype=model.dtype)
     with torch.inference_mode():
         output = model.generate(**inputs, generation_config=models["generation_config"])
     # Decode only the reply, not the prompt
