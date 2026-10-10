@@ -1,0 +1,31 @@
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      AUDIO_SERVICE_URL: http://audio:8000
+    depends_on:
+      audio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  audio:
+    build: ./services/audio
+    ports:
+      - "8000:8000"
+    environment:
+      WHISPER_MODEL: small # tiny | base | small | medium | large-v3
+      EMOTION_MODEL: superb/wav2vec2-base-superb-er
+    volumes:
+      - models:/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 300s # first start downloads the models
+    restart: unless-stopped
+
+volumes:
+  models:
