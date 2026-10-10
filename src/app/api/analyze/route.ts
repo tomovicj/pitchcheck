@@ -12,7 +12,7 @@ export async function POST(request: Request) {
 
   let res: Response;
   try {
-    res = await fetch(`${audioServiceUrl}/analyze`, { method: "POST", body });
+    res = await fetch(`${audioServiceUrl}/analyze/stream`, { method: "POST", body });
   } catch {
     return Response.json({ error: "Audio service is unreachable" }, { status: 502 });
   }
@@ -25,5 +25,11 @@ export async function POST(request: Request) {
     );
   }
 
-  return Response.json(await res.json());
+  // NDJSON progress events followed by the result; no-transform stops compression from buffering it
+  return new Response(res.body, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-cache, no-transform",
+    },
+  });
 }

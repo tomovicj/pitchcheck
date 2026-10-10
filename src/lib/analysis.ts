@@ -40,3 +40,10 @@ export type AudioAnalysis = {
     timeline: EmotionWindow[];
   };
 };
+
+export type AnalysisStage = "transcribing" | "analyzing_pitch" | "detecting_emotion";
+
+export type AnalysisEvent =
+  | { type: "progress"; stage: AnalysisStage; progress: number }
+  | { type: "result"; data: AudioAnalysis }
+  | { type: "error"; message: string };

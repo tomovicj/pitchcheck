@@ -1,13 +1,18 @@
 """Local speech analysis: transcript + cadence, pitch/tonality, and emotion."""
 
+import json
 import os
+import queue
 import subprocess
 import tempfile
+import threading
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 
 import numpy as np
 import parselmouth
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from faster_whisper import WhisperModel
 from transformers import pipeline
 
@@ -20,6 +25,9 @@ FILLERS = {"um", "uh", "uhm", "umm", "er", "erm", "ah", "hmm", "mm"}
 EMOTION_LABELS = {"neu": "neutral", "hap": "happy", "ang": "angry", "sad": "sad"}
 
 models = {}
+
+# Called with a 0-1 fraction of the current step's work
+OnProgress = Callable[[float], None]
 
 
 @asynccontextmanager
@@ -44,9 +52,14 @@ def decode(path: str) -> np.ndarray:
     return np.frombuffer(result.stdout, dtype=np.float32)
 
 
-def analyze_speech(audio: np.ndarray) -> dict:
+def analyze_speech(audio: np.ndarray, on_progress: OnProgress) -> dict:
+    duration = audio.size / SAMPLE_RATE
     segments, info = models["whisper"].transcribe(audio, word_timestamps=True, vad_filter=True)
-    words = [w for s in segments for w in s.words or []]
+    words = []
+    # Segments are generated lazily, so transcription happens inside this loop
+    for segment in segments:
+        words.extend(segment.words or [])
+        on_progress(min(segment.end / duration, 1.0))
     transcript = "".join(w.word for w in words).strip()
     if not words:
         return {"language": info.language, "transcript": transcript, "word_count": 0}
@@ -98,16 +111,17 @@ def analyze_prosody(audio: np.ndarray) -> dict | None:
     }
 
 
-def analyze_emotion(audio: np.ndarray) -> dict:
+def analyze_emotion(audio: np.ndarray, on_progress: OnProgress) -> dict:
     window = int(EMOTION_WINDOW_S * SAMPLE_RATE)
     chunks = [(i, audio[i : i + window]) for i in range(0, len(audio), window)]
     chunks = [(i, c) for i, c in chunks if len(c) >= SAMPLE_RATE]  # skip tails under 1s
     if not chunks:
         return {"overall": {}, "timeline": []}
 
-    results = models["emotion"](
-        [{"raw": c, "sampling_rate": SAMPLE_RATE} for _, c in chunks], top_k=None
-    )
+    results = []
+    for n, (_, chunk) in enumerate(chunks, start=1):
+        results.append(models["emotion"]({"raw": chunk, "sampling_rate": SAMPLE_RATE}, top_k=None))
+        on_progress(n / len(chunks))
 
     timeline, totals = [], {}
     for (start, chunk), scores in zip(chunks, results):
@@ -126,13 +140,23 @@ def analyze_emotion(audio: np.ndarray) -> dict:
     return {"overall": dict(sorted(overall.items(), key=lambda kv: -kv[1])), "timeline": timeline}
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+def run_analysis(audio: np.ndarray, report: Callable[[str, float], None]) -> dict:
+    """Run every step, reporting (stage, overall 0-1 progress) along the way."""
+    # Weights reflect measured timings on CPU: transcription dominates
+    report("transcribing", 0.0)
+    speech = analyze_speech(audio, lambda p: report("transcribing", 0.9 * p))
+    report("analyzing_pitch", 0.9)
+    prosody = analyze_prosody(audio)
+    emotion = analyze_emotion(audio, lambda p: report("detecting_emotion", 0.91 + 0.09 * p))
+    return {
+        "duration_s": round(audio.size / SAMPLE_RATE, 2),
+        "speech": speech,
+        "prosody": prosody,
+        "emotion": emotion,
+    }
 
 
-@app.post("/analyze")
-def analyze(file: UploadFile = File(...)):
+def load_upload(file: UploadFile) -> np.ndarray:
     with tempfile.NamedTemporaryFile(suffix=os.path.splitext(file.filename or "")[1]) as tmp:
         tmp.write(file.file.read())
         tmp.flush()
@@ -140,10 +164,41 @@ def analyze(file: UploadFile = File(...)):
 
     if audio.size < SAMPLE_RATE:
         raise HTTPException(400, "Audio is shorter than 1 second")
+    return audio
 
-    return {
-        "duration_s": round(audio.size / SAMPLE_RATE, 2),
-        "speech": analyze_speech(audio),
-        "prosody": analyze_prosody(audio),
-        "emotion": analyze_emotion(audio),
-    }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/analyze")
+def analyze(file: UploadFile = File(...)):
+    return run_analysis(load_upload(file), lambda *_: None)
+
+
+@app.post("/analyze/stream")
+def analyze_stream(file: UploadFile = File(...)):
+    """Same as /analyze, but streams NDJSON progress events before the result."""
+    audio = load_upload(file)
+    events = queue.Queue()
+
+    def work():
+        try:
+            result = run_analysis(
+                audio,
+                lambda stage, p: events.put({"type": "progress", "stage": stage, "progress": round(p, 3)}),
+            )
+            events.put({"type": "result", "data": result})
+        except Exception:
+            events.put({"type": "error", "message": "Analysis failed"})
+            raise
+        finally:
+            events.put(None)
+
+    def stream():
+        threading.Thread(target=work, daemon=True).start()
+        while (event := events.get()) is not None:
+            yield json.dumps(event) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")

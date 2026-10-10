@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import type { AudioAnalysis } from "@/lib/analysis";
+import type { AnalysisEvent, AnalysisStage, AudioAnalysis } from "@/lib/analysis";
 
 // Rough guides for spoken presentations, not hard rules
 function paceLabel(wpm: number) {
@@ -27,6 +27,31 @@ function variationLabel(semitones: number) {
   if (semitones < 2) return "Monotone";
   if (semitones > 4) return "Expressive";
   return "Moderate";
+}
+
+const STAGE_LABELS: Record<AnalysisStage | "uploading", string> = {
+  uploading: "Uploading and decoding audio",
+  transcribing: "Transcribing speech",
+  analyzing_pitch: "Analyzing pitch and loudness",
+  detecting_emotion: "Detecting emotion",
+};
+
+type Status = { stage: AnalysisStage | "uploading"; progress: number };
+
+async function* readEvents(body: ReadableStream<Uint8Array>) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.trim()) yield JSON.parse(line) as AnalysisEvent;
+    }
+  }
 }
 
 function formatTime(seconds: number) {
@@ -49,7 +74,7 @@ export function AudioAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AudioAnalysis | null>(null);
 
@@ -64,7 +89,7 @@ export function AudioAnalyzer() {
 
   async function analyze() {
     if (!file) return;
-    setLoading(true);
+    setStatus({ stage: "uploading", progress: 0 });
     setError(null);
     setResult(null);
 
@@ -72,13 +97,21 @@ export function AudioAnalyzer() {
     body.append("file", file);
     try {
       const res = await fetch("/api/analyze", { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Analysis failed");
-      setResult(data);
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Analysis failed");
+      }
+
+      for await (const event of readEvents(res.body)) {
+        if (event.type === "progress") setStatus({ stage: event.stage, progress: event.progress });
+        else if (event.type === "error") throw new Error(event.message);
+        else return setResult(event.data);
+      }
+      throw new Error("Analysis ended without a result");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed");
     } finally {
-      setLoading(false);
+      setStatus(null);
     }
   }
 
@@ -131,10 +164,22 @@ export function AudioAnalyzer() {
 
           {audioUrl && <audio controls src={audioUrl} className="w-full" />}
 
-          <Button onClick={analyze} disabled={!file || loading} className="self-start">
-            {loading && <Loader2 className="animate-spin" />}
-            {loading ? "Analyzing…" : "Analyze"}
+          <Button onClick={analyze} disabled={!file || !!status} className="self-start">
+            {status && <Loader2 className="animate-spin" />}
+            {status ? "Analyzing…" : "Analyze"}
           </Button>
+
+          {status && (
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between text-sm">
+                <span>{STAGE_LABELS[status.stage]}…</span>
+                <span className="text-muted-foreground tabular-nums">
+                  {Math.round(status.progress * 100)}%
+                </span>
+              </div>
+              <Progress value={status.progress * 100} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
