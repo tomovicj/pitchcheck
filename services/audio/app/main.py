@@ -16,7 +16,7 @@ import parselmouth
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from transformers import GenerationConfig, pipeline
+from transformers import AutoModelForMultimodalLM, AutoProcessor, GenerationConfig
 
 SAMPLE_RATE = 16_000
 GEMMA_MODEL = os.getenv("GEMMA_MODEL", "google/gemma-4-E2B-it")
@@ -29,13 +29,17 @@ models = {}
 
 
 def load_models():
-    # On CPU, "auto" offloads layers to disk when RAM looks short, and the pipeline cannot run that.
+    # Processor and model directly, as in the Gemma 4 examples: the any-to-any pipeline
+    # insists on librosa for audio even when it is given decoded arrays.
+    models["processor"] = AutoProcessor.from_pretrained(GEMMA_MODEL)
+    # On CPU, "auto" offloads layers to disk when RAM looks short, which makes generation unusably slow.
     # Load everything into RAM instead; the bf16 weights need about 10 GB for E2B.
     device_map = "auto" if torch.cuda.is_available() else "cpu"
-    models["gemma"] = pipeline(task="any-to-any", model=GEMMA_MODEL, device_map=device_map, dtype="auto")
+    models["gemma"] = AutoModelForMultimodalLM.from_pretrained(GEMMA_MODEL, device_map=device_map, dtype="auto")
     config = GenerationConfig.from_pretrained(GEMMA_MODEL)
     # Greedy decoding so the same recording gets the same scores
     config.do_sample = False
+    config.top_p = config.top_k = None  # sampling-only settings; unset to avoid warnings
     config.max_new_tokens = 600
     models["generation_config"] = config
 
@@ -158,18 +162,24 @@ def parse_json(text: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def generate(messages: list[dict]) -> str:
+    processor, model = models["processor"], models["gemma"]
+    inputs = processor.apply_chat_template(
+        messages, tokenize=True, return_dict=True, return_tensors="pt", add_generation_prompt=True
+    ).to(model.device)
+    with torch.inference_mode():
+        output = model.generate(**inputs, generation_config=models["generation_config"])
+    # Decode only the reply, not the prompt
+    return processor.decode(output[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
+
+
 def ask_gemma(content: list[dict]) -> tuple[dict | None, str]:
     """Send one user turn and parse a JSON object from the reply, retrying once if it does not parse."""
     raw = ""
     for attempt in range(2):
         if attempt:
             content = [*content, {"type": "text", "text": "Your previous reply was not valid JSON. Return only the JSON object."}]
-        outputs = models["gemma"](
-            [{"role": "user", "content": content}],
-            return_full_text=False,
-            generate_kwargs={"generation_config": models["generation_config"]},
-        )
-        raw = outputs[0]["generated_text"]
+        raw = generate([{"role": "user", "content": content}])
         if (parsed := parse_json(raw)) is not None:
             return parsed, raw
     return None, raw
