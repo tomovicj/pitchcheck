@@ -108,6 +108,7 @@ The audio service needs Python 3.12 and ffmpeg on the PATH. The web app reaches 
 | `src/lib/analysis.ts` | Types for the analysis result and progress events |
 | `services/audio/app/main.py` | FastAPI service: decodes the file, measures it, splits it, and runs Gemma per segment and for the score |
 | `services/audio/scripts/probe.py` | Runs the per-segment Gemma prompt on one clip of 30 s or less, for testing what Gemma hears |
+| `services/audio/scripts/smoke_test.py` | Runs the service end to end with a tiny random Gemma 4; CI runs it in the audio image before tagging |
 | `docker-compose.yml` | The `web` and `audio` services |
 
 ## Privacy

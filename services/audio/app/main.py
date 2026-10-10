@@ -39,7 +39,6 @@ def load_models():
     config = GenerationConfig.from_pretrained(GEMMA_MODEL)
     # Greedy decoding so the same recording gets the same scores
     config.do_sample = False
-    config.top_p = config.top_k = None  # sampling-only settings; unset to avoid warnings
     config.max_new_tokens = 600
     models["generation_config"] = config
 

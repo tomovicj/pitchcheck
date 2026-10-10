@@ -4,6 +4,7 @@ name: Images
 # so another machine can run the app with `docker compose pull`.
 # Each platform builds on its own native runner (emulating arm64 makes the torch install crawl),
 # pushes by digest, and the merge job joins the digests into one multi-platform tag.
+# The audio image is smoke-tested on both platforms before any tag moves.
 on:
   push:
     branches: [main]
@@ -65,6 +66,15 @@ jobs:
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+
+      # Runs the published image end to end with a tiny random Gemma. A failure stops the merge
+      # job, so latest and the sha tag never point at an image that cannot start.
+      - name: Smoke test
+        if: matrix.image.name == 'audio'
+        run: >-
+          docker run --rm
+          ghcr.io/${{ github.repository_owner }}/pitchcheck-audio@${{ steps.build.outputs.digest }}
+          python -m scripts.smoke_test
 
       - name: Export digest
         run: |
