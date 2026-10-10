@@ -4,7 +4,7 @@ PitchCheck gives hackathon and startup teams feedback on a pitch before a human 
 
 Built for the GDG Belgrade DevFest hackathon, whose theme is "Reimagine the Event Experience with Gemma".
 
-> **Status on 10 October 2026: work in progress.** The app accepts an audio or video recording and reports speech metrics. It does not use Gemma yet, does not accept slides, and does not produce scores or written feedback. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
+> **Status on 10 October 2026: work in progress.** The app accepts an audio or video recording. Gemma 4 E2B listens to it in segments of up to 30 seconds and returns a pitch score, insights and feedback. Slides are not accepted yet, and whether Gemma reliably hears tone and emotion has not been tested on real recordings. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
 
 ## Requirements
 
@@ -19,26 +19,26 @@ The scores describe the deck and the delivery. They do not rate the business ide
 
 ## What is implemented
 
-Read from the code at commit `a0a917e`.
+Read from the code after the Gemma audio change (the commit following `a0a917e`).
 
 | Capability | State |
 | --- | --- |
 | Upload an audio or video recording; for video the audio track is extracted with ffmpeg | Implemented |
 | Live progress while the analysis runs | Implemented |
-| Pitch and loudness variation, measured from the signal with Praat | Implemented; stays as supporting evidence |
-| Pace, pauses and filler words | Implemented with Whisper; to be replaced |
-| Emotion per 5-second window | Implemented with a wav2vec2 classifier; to be replaced |
-| Gemma inference | Not started |
+| Pitch and loudness variation, measured from the signal with Praat | Implemented; sent to Gemma as supporting evidence |
+| Pauses, measured from the signal with Praat | Implemented |
+| Splitting the audio into segments of at most 30 seconds, cut at pauses | Implemented |
+| Gemma 4 E2B listens to each segment: tone, emotion, energy, pace, filler words, topics | Implemented; not yet validated on real recordings (TODO section 1) |
+| Score for the pitch with per-criterion sub-scores, insights and timestamped feedback | Implemented; rubric is provisional |
 | Slide deck upload and analysis | Not started |
-| Score for the slides, score for the pitch | Not started |
-| Written insights and feedback | Not started |
+| Score for the slides | Not started |
 | Check that the spoken pitch matches the deck | Not started |
 
-Whisper and wav2vec2 are not Gemma models, so the current analysis path does not meet requirement 2.
+Whisper and the wav2vec2 emotion classifier have been removed. Every score and every piece of feedback now comes from Gemma; Praat supplies measurements only.
 
 ## Planned pipeline
 
-Nothing below is built. It is the working plan, shaped by the Gemma limits in the next section.
+Steps 2 to 4 and the pitch half of step 7 are built. The rest is the working plan, shaped by the Gemma limits in the next section.
 
 1. The team uploads the pitch video and the deck.
 2. ffmpeg extracts the audio track as 16 kHz mono. This step exists today.
@@ -54,7 +54,7 @@ Checked on 10 October 2026.
 
 | Fact | Consequence for PitchCheck |
 | --- | --- |
-| Audio input exists in Gemma 3n and in Gemma 4 E2B, E4B and 12B Unified. Gemma 4 26B A4B and 31B do not take audio. | The model must be one of the audio-capable variants. Not chosen yet. |
+| Audio input exists in Gemma 3n and in Gemma 4 E2B, E4B and 12B Unified. Gemma 4 26B A4B and 31B do not take audio. | The model must be one of the audio-capable variants. Gemma 4 E2B is the default (`GEMMA_MODEL`). |
 | One audio clip is at most 30 seconds, 16 kHz, single channel, 25 tokens per second in Gemma 4. | A pitch of several minutes has to be segmented and the results combined. |
 | Documented audio tasks are speech recognition and speech translation. Emotion, tone and prosody are not mentioned as a capability or as a limitation. | Requirement 3 depends on behavior the documentation does not promise. It has to be tested on real recordings first. |
 | Video is processed as image frames, up to 60 seconds at one frame per second. | Video frames are not part of the plan; the recording is used for its sound. |
@@ -73,7 +73,7 @@ With Docker:
 docker compose up --build
 ```
 
-The web app is on http://localhost:3000 and the audio service on http://localhost:8000. The first start downloads the Whisper and emotion models, which can take several minutes.
+The web app is on http://localhost:3000 and the audio service on http://localhost:8000. The first start downloads the Gemma weights (several GB), which can take a while. If Hugging Face asks for the Gemma license to be accepted, export `HF_TOKEN` before starting.
 
 Without Docker, in two terminals:
 
@@ -97,7 +97,8 @@ The audio service needs Python 3.12 and ffmpeg on the PATH. The web app reaches 
 | `src/app/page.tsx`, `src/components/audio-analyzer.tsx` | Upload page and results view |
 | `src/app/api/analyze/route.ts` | Streams the upload to the audio service and relays its progress events |
 | `src/lib/analysis.ts` | Types for the analysis result and progress events |
-| `services/audio/app/main.py` | FastAPI service that decodes the file and runs the analysis |
+| `services/audio/app/main.py` | FastAPI service: decodes the file, measures it, splits it, and runs Gemma per segment and for the score |
+| `services/audio/scripts/probe.py` | Runs the per-segment Gemma prompt on one clip of 30 s or less, for testing what Gemma hears |
 | `docker-compose.yml` | The `web` and `audio` services |
 
 ## Privacy

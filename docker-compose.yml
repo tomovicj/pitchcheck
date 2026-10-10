@@ -15,8 +15,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      WHISPER_MODEL: small # tiny | base | small | medium | large-v3
-      EMOTION_MODEL: superb/wav2vec2-base-superb-er
+      GEMMA_MODEL: google/gemma-4-E2B-it # audio input: gemma-4-E2B-it | gemma-4-E4B-it | gemma-4-12B-it
+      HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - models:/models
     healthcheck:
@@ -24,7 +24,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 300s # first start downloads the models
+      start_period: 1200s # first start downloads the Gemma weights
     restart: unless-stopped
 
 volumes:

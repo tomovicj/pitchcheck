@@ -1,8 +1,9 @@
-"""Local speech analysis: transcript + cadence, pitch/tonality, and emotion."""
+"""Local pitch delivery analysis: signal measurements with Praat, judgement with Gemma."""
 
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,27 +15,30 @@ import numpy as np
 import parselmouth
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from faster_whisper import WhisperModel
-from transformers import pipeline
+from transformers import GenerationConfig, pipeline
 
 SAMPLE_RATE = 16_000
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
-EMOTION_MODEL = os.getenv("EMOTION_MODEL", "superb/wav2vec2-base-superb-er")
-EMOTION_WINDOW_S = float(os.getenv("EMOTION_WINDOW_S", "5"))
+GEMMA_MODEL = os.getenv("GEMMA_MODEL", "google/gemma-4-E2B-it")
+# Gemma accepts audio clips of at most 30 seconds
+MAX_SEGMENT_S = 30.0
+MIN_SEGMENT_S = 1.0
 PAUSE_THRESHOLD_S = 0.5
-FILLERS = {"um", "uh", "uhm", "umm", "er", "erm", "ah", "hmm", "mm"}
-EMOTION_LABELS = {"neu": "neutral", "hap": "happy", "ang": "angry", "sad": "sad"}
 
 models = {}
 
-# Called with a 0-1 fraction of the current step's work
-OnProgress = Callable[[float], None]
+
+def load_models():
+    models["gemma"] = pipeline(task="any-to-any", model=GEMMA_MODEL, device_map="auto", dtype="auto")
+    config = GenerationConfig.from_pretrained(GEMMA_MODEL)
+    # Greedy decoding so the same recording gets the same scores
+    config.do_sample = False
+    config.max_new_tokens = 600
+    models["generation_config"] = config
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    models["whisper"] = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
-    models["emotion"] = pipeline("audio-classification", model=EMOTION_MODEL, device=-1)
+    load_models()
     yield
     models.clear()
 
@@ -55,43 +59,67 @@ def decode(path: str) -> np.ndarray:
     return np.frombuffer(result.stdout, dtype=np.float32)
 
 
-def analyze_speech(audio: np.ndarray, on_progress: OnProgress) -> dict:
-    duration = audio.size / SAMPLE_RATE
-    segments, info = models["whisper"].transcribe(audio, word_timestamps=True, vad_filter=True)
-    words = []
-    # Segments are generated lazily, so transcription happens inside this loop
-    for segment in segments:
-        words.extend(segment.words or [])
-        on_progress(min(segment.end / duration, 1.0))
-    transcript = "".join(w.word for w in words).strip()
-    if not words:
-        return {"language": info.language, "transcript": transcript, "word_count": 0}
+def to_sound(audio: np.ndarray) -> parselmouth.Sound:
+    return parselmouth.Sound(audio.astype(np.float64), sampling_frequency=SAMPLE_RATE)
 
-    gaps = [b.start - a.end for a, b in zip(words, words[1:])]
-    pauses = [g for g in gaps if g >= PAUSE_THRESHOLD_S]
-    span = words[-1].end - words[0].start
-    speaking_time = span - sum(pauses)
-    fillers = [w.word.strip(" ,.?!").lower() for w in words]
-    fillers = [w for w in fillers if w in FILLERS]
 
+def find_silences(audio: np.ndarray) -> list[tuple[float, float]]:
+    """Silent stretches of at least PAUSE_THRESHOLD_S, from intensity (25 dB below the peak)."""
+    sound = to_sound(audio)
+    grid = parselmouth.praat.call(
+        sound, "To TextGrid (silences)", 100, 0, -25, PAUSE_THRESHOLD_S, 0.1, "silent", "sounding"
+    )
+    silences = []
+    for i in range(1, parselmouth.praat.call(grid, "Get number of intervals", 1) + 1):
+        if parselmouth.praat.call(grid, "Get label of interval", 1, i) == "silent":
+            start = parselmouth.praat.call(grid, "Get start time of interval", 1, i)
+            end = parselmouth.praat.call(grid, "Get end time of interval", 1, i)
+            silences.append((start, end))
+    return silences
+
+
+def inner_pauses(silences: list[tuple[float, float]], start: float, end: float) -> list[float]:
+    """Pause lengths within [start, end], ignoring silence before the first and after the last sound."""
+    pauses = []
+    for s, e in silences:
+        s, e = max(s, start), min(e, end)
+        if e - s >= PAUSE_THRESHOLD_S and s > start and e < end:
+            pauses.append(e - s)
+    return pauses
+
+
+def analyze_pauses(silences: list[tuple[float, float]], duration: float) -> dict:
+    pauses = inner_pauses(silences, 0.0, duration)
+    edges = sum(e - s for s, e in silences if s <= 0.0 or e >= duration)
+    speaking = duration - edges - sum(pauses)
     return {
-        "language": info.language,
-        "transcript": transcript,
-        "word_count": len(words),
-        "words_per_minute": round(len(words) / span * 60, 1) if span > 0 else None,
-        # Rate while actually talking, excluding pauses
-        "articulation_rate_wpm": round(len(words) / speaking_time * 60, 1) if speaking_time > 0 else None,
         "pause_count": len(pauses),
         "total_pause_s": round(sum(pauses), 2),
         "mean_pause_s": round(float(np.mean(pauses)), 2) if pauses else 0.0,
         "longest_pause_s": round(max(pauses), 2) if pauses else 0.0,
-        "filler_count": len(fillers),
-        "fillers": sorted(set(fillers)),
+        # Share of the time between first and last sound spent talking
+        "speaking_ratio": round(speaking / (duration - edges), 2) if duration > edges else 0.0,
     }
 
 
-def analyze_prosody(audio: np.ndarray) -> dict | None:
-    sound = parselmouth.Sound(audio.astype(np.float64), sampling_frequency=SAMPLE_RATE)
+def segment(duration: float, silences: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Split into segments of at most MAX_SEGMENT_S, cutting in the middle of a pause where possible."""
+    segments, start = [], 0.0
+    while duration - start > MAX_SEGMENT_S:
+        limit = start + MAX_SEGMENT_S
+        middles = [(s + e) / 2 for s, e in silences]
+        cuts = [m for m in middles if start + MIN_SEGMENT_S <= m <= limit]
+        # No pause in this stretch: cut mid-word rather than exceed what Gemma accepts
+        cut = cuts[-1] if cuts else limit
+        segments.append((start, cut))
+        start = cut
+    if duration - start >= MIN_SEGMENT_S:
+        segments.append((start, duration))
+    return segments
+
+
+def measure(audio: np.ndarray) -> dict | None:
+    sound = to_sound(audio)
     f0 = sound.to_pitch().selected_array["frequency"]
     voiced = f0[f0 > 0]
     if voiced.size == 0:
@@ -114,48 +142,155 @@ def analyze_prosody(audio: np.ndarray) -> dict | None:
     }
 
 
-def analyze_emotion(audio: np.ndarray, on_progress: OnProgress) -> dict:
-    window = int(EMOTION_WINDOW_S * SAMPLE_RATE)
-    chunks = [(i, audio[i : i + window]) for i in range(0, len(audio), window)]
-    chunks = [(i, c) for i, c in chunks if len(c) >= SAMPLE_RATE]  # skip tails under 1s
-    if not chunks:
-        return {"overall": {}, "timeline": []}
+def parse_json(text: str) -> dict | None:
+    text = re.sub(r"```(?:json)?", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end < start:
+        return None
+    try:
+        value = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
 
-    results = []
-    for n, (_, chunk) in enumerate(chunks, start=1):
-        results.append(models["emotion"]({"raw": chunk, "sampling_rate": SAMPLE_RATE}, top_k=None))
-        on_progress(n / len(chunks))
 
-    timeline, totals = [], {}
-    for (start, chunk), scores in zip(chunks, results):
-        scores = {EMOTION_LABELS.get(s["label"], s["label"]): s["score"] for s in scores}
-        for label, score in scores.items():
-            totals[label] = totals.get(label, 0.0) + score
-        top = max(scores, key=scores.get)
-        timeline.append({
-            "start_s": round(start / SAMPLE_RATE, 2),
-            "end_s": round((start + len(chunk)) / SAMPLE_RATE, 2),
-            "label": top,
-            "scores": {k: round(v, 3) for k, v in scores.items()},
-        })
+def ask_gemma(content: list[dict]) -> tuple[dict | None, str]:
+    """Send one user turn and parse a JSON object from the reply, retrying once if it does not parse."""
+    raw = ""
+    for attempt in range(2):
+        if attempt:
+            content = [*content, {"type": "text", "text": "Your previous reply was not valid JSON. Return only the JSON object."}]
+        outputs = models["gemma"](
+            [{"role": "user", "content": content}],
+            return_full_text=False,
+            generate_kwargs={"generation_config": models["generation_config"]},
+        )
+        raw = outputs[0]["generated_text"]
+        if (parsed := parse_json(raw)) is not None:
+            return parsed, raw
+    return None, raw
 
-    overall = {k: round(v / len(timeline), 3) for k, v in totals.items()}
-    return {"overall": dict(sorted(overall.items(), key=lambda kv: -kv[1])), "timeline": timeline}
+
+def describe_measurements(measurements: dict | None, pause_ratio: float | None = None) -> str:
+    if measurements is None:
+        return "Signal measurements: no voiced speech detected."
+    lines = [
+        "Signal measurements for this audio (from Praat):",
+        f"- Pitch variation: {measurements['pitch_std_semitones']} semitones std "
+        "(under 2 usually sounds monotone, over 4 expressive)",
+        f"- Pitch range (5th-95th percentile): {measurements['pitch_range_semitones']} semitones",
+        f"- Loudness variation: {measurements['intensity_std_db']} dB std",
+        f"- Voiced share of frames: {measurements['voiced_ratio']}",
+    ]
+    if pause_ratio is not None:
+        lines.append(f"- Share of time in pauses of {PAUSE_THRESHOLD_S}s or longer: {pause_ratio}")
+    return "\n".join(lines)
+
+
+SEGMENT_PROMPT = """You are a presentation coach listening to one segment of a startup pitch, from {start} to {end} in the recording.
+Judge how it is delivered: tone of voice, emotion, energy, pace, hesitation and filler words. Do not judge the business idea.
+Base your answer on what you hear in the audio. Use the measurements below as supporting evidence.
+
+{measurements}
+
+Reply with only a JSON object in this shape:
+{{"tone": "short description of the tone of voice",
+ "emotion": "the dominant emotion the speaker conveys, one or two words",
+ "energy": "low" | "medium" | "high",
+ "pace": "slow" | "conversational" | "fast",
+ "filler_words": ["each filler word or sound you hear, e.g. um, uh, like"],
+ "topics": ["short names of the topics covered in this segment"],
+ "observations": "one or two sentences on what works and what does not in this delivery"}}"""
+
+
+def observe_segment(clip: np.ndarray, start: float, end: float, measurements: dict | None, pause_ratio: float) -> dict:
+    prompt = SEGMENT_PROMPT.format(
+        start=format_time(start),
+        end=format_time(end),
+        measurements=describe_measurements(measurements, pause_ratio),
+    )
+    # Audio after the text, as recommended for Gemma 4
+    observations, raw = ask_gemma([{"type": "text", "text": prompt}, {"type": "audio", "audio": clip}])
+    return {"observations": observations, **({} if observations else {"raw": raw})}
+
+
+SCORE_PROMPT = """You are a presentation coach scoring the delivery of a startup pitch. Score how it was delivered, never the business idea or its market potential.
+
+Whole recording: {duration}.
+{measurements}
+Pauses: {pauses}
+
+Observations per segment, made while listening to the audio:
+{segments}
+
+Score each criterion from 0 to 100:
+- Vocal variety: pitch and loudness change to carry meaning, not monotone.
+- Energy and confidence: sounds engaged and sure, not flat or nervous.
+- Pace and pauses: easy to follow, pauses used deliberately, not rushed or dragging.
+- Clarity: few filler words and hesitations.
+- Structure: the topics follow a clear order a listener can track.
+
+Reply with only a JSON object in this shape:
+{{"criteria": [{{"name": "Vocal variety", "score": 0, "reason": "one sentence"}}, ...one entry per criterion above],
+ "pitch_score": 0,
+ "insights": ["what the analysis found, 3 to 5 short statements"],
+ "feedback": [{{"at_s": 0, "text": "one concrete thing to change"}}]}}
+pitch_score is the overall delivery score from 0 to 100. Give 3 to 5 feedback items. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch."""
+
+
+def score_pitch(duration: float, prosody: dict | None, pauses: dict, segments: list[dict]) -> dict | None:
+    described = []
+    for s in segments:
+        observations = json.dumps(s["observations"]) if s["observations"] else "(no observations)"
+        described.append(f"- {format_time(s['start_s'])}-{format_time(s['end_s'])} (starts at {s['start_s']}s): {observations}")
+    prompt = SCORE_PROMPT.format(
+        duration=format_time(duration),
+        measurements=describe_measurements(prosody),
+        pauses=json.dumps(pauses),
+        segments="\n".join(described),
+    )
+    summary, _ = ask_gemma([{"type": "text", "text": prompt}])
+    return summary
+
+
+def format_time(seconds: float) -> str:
+    return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
 
 
 def run_analysis(audio: np.ndarray, report: Callable[[str, float], None]) -> dict:
     """Run every step, reporting (stage, overall 0-1 progress) along the way."""
-    # Weights reflect measured timings on CPU: transcription dominates
-    report("transcribing", 0.0)
-    speech = analyze_speech(audio, lambda p: report("transcribing", 0.9 * p))
-    report("analyzing_pitch", 0.9)
-    prosody = analyze_prosody(audio)
-    emotion = analyze_emotion(audio, lambda p: report("detecting_emotion", 0.91 + 0.09 * p))
+    # Weights reflect where the time goes: one Gemma call per segment dominates
+    duration = audio.size / SAMPLE_RATE
+    report("measuring", 0.0)
+    silences = find_silences(audio)
+    pauses = analyze_pauses(silences, duration)
+    prosody = measure(audio)
+    bounds = segment(duration, silences)
+
+    report("listening", 0.05)
+    segments = []
+    for n, (start, end) in enumerate(bounds, start=1):
+        clip = audio[int(start * SAMPLE_RATE) : int(end * SAMPLE_RATE)]
+        measurements = measure(clip)
+        pause_ratio = round(sum(inner_pauses(silences, start, end)) / (end - start), 2)
+        segments.append({
+            "start_s": round(start, 2),
+            "end_s": round(end, 2),
+            "measurements": measurements,
+            "pause_ratio": pause_ratio,
+            **observe_segment(clip, start, end, measurements, pause_ratio),
+        })
+        report("listening", 0.05 + 0.85 * n / len(bounds))
+
+    report("scoring", 0.9)
+    summary = score_pitch(duration, prosody, pauses, segments) if segments else None
     return {
-        "duration_s": round(audio.size / SAMPLE_RATE, 2),
-        "speech": speech,
+        "duration_s": round(duration, 2),
+        "model": GEMMA_MODEL,
         "prosody": prosody,
-        "emotion": emotion,
+        "pauses": pauses,
+        "segments": segments,
+        "summary": summary,
     }
 
 

@@ -16,13 +16,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import type { AnalysisEvent, AnalysisStage, AudioAnalysis } from "@/lib/analysis";
 
-// Rough guides for spoken presentations, not hard rules
-function paceLabel(wpm: number) {
-  if (wpm < 110) return "Slow";
-  if (wpm > 170) return "Fast";
-  return "Conversational";
-}
-
+// Rough guide for spoken presentations, not a hard rule
 function variationLabel(semitones: number) {
   if (semitones < 2) return "Monotone";
   if (semitones > 4) return "Expressive";
@@ -31,9 +25,9 @@ function variationLabel(semitones: number) {
 
 const STAGE_LABELS: Record<AnalysisStage | "uploading", string> = {
   uploading: "Uploading and extracting audio",
-  transcribing: "Transcribing speech",
-  analyzing_pitch: "Analyzing pitch and loudness",
-  detecting_emotion: "Detecting emotion",
+  measuring: "Measuring pitch, loudness and pauses",
+  listening: "Gemma is listening to each segment",
+  scoring: "Scoring the pitch",
 };
 
 type Status = { stage: AnalysisStage | "uploading"; progress: number };
@@ -208,42 +202,96 @@ export function AudioAnalyzer() {
 }
 
 function Results({ result }: { result: AudioAnalysis }) {
-  const { speech, prosody, emotion } = result;
+  const { prosody, pauses, segments, summary } = result;
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
+      <Card className="md:col-span-2">
+        <CardHeader>
+          <CardTitle>Pitch score</CardTitle>
+          <CardDescription>
+            Scored by {result.model} from the audio. Scores rate the delivery, not the business idea.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-6">
+          {summary?.pitch_score != null ? (
+            <>
+              <div className="flex items-baseline gap-2">
+                <span className="text-5xl font-semibold tabular-nums">
+                  {Math.round(summary.pitch_score)}
+                </span>
+                <span className="text-muted-foreground">/ 100</span>
+              </div>
+              {!!summary.criteria?.length && (
+                <div className="flex flex-col gap-3">
+                  {summary.criteria.map((c) => (
+                    <div key={c.name} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-3">
+                        <span className="w-40 shrink-0 text-sm">{c.name}</span>
+                        <Progress value={c.score} className="flex-1" />
+                        <span className="text-muted-foreground w-10 text-right text-sm tabular-nums">
+                          {Math.round(c.score)}
+                        </span>
+                      </div>
+                      {c.reason && <p className="text-muted-foreground text-xs">{c.reason}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!!summary.insights?.length && (
+                <div className="flex flex-col gap-2">
+                  <h3 className="text-sm font-medium">Insights</h3>
+                  <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
+                    {summary.insights.map((insight) => (
+                      <li key={insight}>{insight}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {!!summary.feedback?.length && (
+                <div className="flex flex-col gap-2">
+                  <h3 className="text-sm font-medium">What to improve</h3>
+                  <ul className="flex flex-col gap-2 text-sm">
+                    {summary.feedback.map((item) => (
+                      <li key={item.text} className="flex items-start gap-2">
+                        {item.at_s != null && (
+                          <Badge variant="outline" className="tabular-nums">
+                            {formatTime(item.at_s)}
+                          </Badge>
+                        )}
+                        <span>{item.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Gemma did not return a usable score for this recording.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Cadence</CardTitle>
           <CardDescription>{formatTime(result.duration_s)} of audio</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
-          {speech.words_per_minute != null ? (
-            <>
-              <Stat
-                label="Words per minute"
-                value={speech.words_per_minute.toFixed(0)}
-                hint={paceLabel(speech.words_per_minute)}
-              />
-              <Stat
-                label="Speaking rate"
-                value={speech.articulation_rate_wpm?.toFixed(0) ?? "–"}
-                hint="wpm, excluding pauses"
-              />
-              <Stat
-                label="Pauses"
-                value={String(speech.pause_count)}
-                hint={`${speech.total_pause_s}s total · longest ${speech.longest_pause_s}s`}
-              />
-              <Stat
-                label="Filler words"
-                value={String(speech.filler_count)}
-                hint={speech.fillers?.length ? speech.fillers.join(", ") : "none detected"}
-              />
-            </>
-          ) : (
-            <p className="text-muted-foreground col-span-2 text-sm">No speech detected.</p>
-          )}
+          <Stat
+            label="Pauses"
+            value={String(pauses.pause_count)}
+            hint={`${pauses.total_pause_s}s total`}
+          />
+          <Stat label="Longest pause" value={`${pauses.longest_pause_s}s`} hint={`mean ${pauses.mean_pause_s}s`} />
+          <Stat
+            label="Speaking time"
+            value={`${Math.round(pauses.speaking_ratio * 100)}%`}
+            hint="of the time between first and last word"
+          />
+          <Stat label="Segments" value={String(segments.length)} hint="up to 30s each" />
         </CardContent>
       </Card>
 
@@ -280,45 +328,38 @@ function Results({ result }: { result: AudioAnalysis }) {
 
       <Card className="md:col-span-2">
         <CardHeader>
-          <CardTitle>Emotion</CardTitle>
-          <CardDescription>
-            Average over the recording, then per {emotion.timeline[0]?.end_s ?? 5}s window. The
-            model tends to read high energy as &quot;angry&quot;, so treat it as a rough signal.
-          </CardDescription>
+          <CardTitle>Timeline</CardTitle>
+          <CardDescription>What Gemma heard in each segment</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-6">
-          <div className="flex flex-col gap-3">
-            {Object.entries(emotion.overall).map(([label, score]) => (
-              <div key={label} className="flex items-center gap-3">
-                <span className="w-16 text-sm capitalize">{label}</span>
-                <Progress value={score * 100} className="flex-1" />
-                <span className="text-muted-foreground w-10 text-right text-sm tabular-nums">
-                  {Math.round(score * 100)}%
-                </span>
+        <CardContent className="flex flex-col gap-4">
+          {segments.map((segment) => {
+            const o = segment.observations;
+            return (
+              <div key={segment.start_s} className="flex flex-col gap-1.5 border-b pb-4 last:border-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium tabular-nums">
+                    {formatTime(segment.start_s)}–{formatTime(segment.end_s)}
+                  </span>
+                  {o?.emotion && <Badge variant="outline" className="capitalize">{o.emotion}</Badge>}
+                  {o?.energy && <Badge variant="outline">{o.energy} energy</Badge>}
+                  {o?.pace && <Badge variant="outline">{o.pace} pace</Badge>}
+                </div>
+                {o ? (
+                  <>
+                    {o.tone && <p className="text-muted-foreground text-xs">Tone: {o.tone}</p>}
+                    {o.observations && <p className="text-sm">{o.observations}</p>}
+                    {!!o.filler_words?.length && (
+                      <p className="text-muted-foreground text-xs">
+                        Filler words: {o.filler_words.join(", ")}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-muted-foreground text-sm">Gemma&apos;s reply for this segment did not parse.</p>
+                )}
               </div>
-            ))}
-          </div>
-          {emotion.timeline.length > 1 && (
-            <div className="flex flex-wrap gap-2">
-              {emotion.timeline.map((w) => (
-                <Badge key={w.start_s} variant="outline" className="capitalize">
-                  {formatTime(w.start_s)} {w.label}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="md:col-span-2">
-        <CardHeader>
-          <CardTitle>Transcript</CardTitle>
-          <CardDescription>
-            {speech.word_count} words · language: {speech.language}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="leading-7">{speech.transcript || "—"}</p>
+            );
+          })}
         </CardContent>
       </Card>
     </div>

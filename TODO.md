@@ -16,20 +16,20 @@ Each has a working assumption so the build is not blocked. Change the assumption
 
 Do this first. Requirement 3 rests on it, and the official documentation lists only speech recognition and translation as audio tasks.
 
-- [ ] Get one audio clip through Gemma. Transformers has the only official audio example (`AutoProcessor` with `AutoModelForMultimodalLM`), and `services/audio` already depends on `transformers` and `torch`. Ollama audio support is reported by third parties only; verify it before relying on it.
-- [ ] Choose the variant: Gemma 4 E2B, E4B or 12B Unified. Measure load time, memory use and compute time per 30-second clip on the demo machine. `requirements.txt` currently pulls CPU-only torch wheels.
-- [ ] Record the same 20 to 30 second script three ways: flat, energetic, rushed and nervous. Ask Gemma to describe tone, emotion and energy for each. The answers must differ and must match what a listener hears.
-- [ ] If the answers do not track the delivery, send the per-segment signal measurements (pitch variation, loudness variation, pause ratio) to Gemma alongside the audio and repeat the test.
+- [x] Get one audio clip through Gemma. Implemented with the documented `any-to-any` Transformers pipeline; numpy arrays are passed directly. Not yet run on the demo machine. Transformers has the only official audio example (`AutoProcessor` with `AutoModelForMultimodalLM`), and `services/audio` already depends on `transformers` and `torch`. Ollama audio support is reported by third parties only; verify it before relying on it.
+- [ ] Choose the variant: Gemma 4 E2B, E4B or 12B Unified. E2B is the default (`GEMMA_MODEL`); still to measure load time, memory use and compute time per 30-second clip on the demo machine. `requirements.txt` currently pulls CPU-only torch wheels.
+- [ ] Record the same 20 to 30 second script three ways: flat, energetic, rushed and nervous. Run `python -m scripts.probe <file>` from `services/audio` on each (or `docker compose exec audio python -m scripts.probe <file>` with the file copied into the container). Ask Gemma to describe tone, emotion and energy for each. The answers must differ and must match what a listener hears.
+- [ ] If the answers do not track the delivery, tune how the measurements are described in the prompt and repeat the test. The per-segment measurements (pitch variation, loudness variation, pause ratio) are already sent alongside the audio.
 - [ ] Write down what was tried and what happened. The jury asks for one real implementation problem and how it was solved.
 
 ## 2. Pitch analysis
 
-- [ ] Split the decoded audio into segments of at most 30 seconds, cutting at pauses so words are not split.
-- [ ] Per segment, call Gemma with the audio and its measurements. Get JSON back: tone, emotion, energy, pace, filler words heard, topics covered.
-- [ ] Compute pauses from the signal (intensity and voicing) instead of from Whisper word timestamps.
-- [ ] Remove `faster-whisper` and the wav2vec2 pipeline from `services/audio/app/main.py` and `requirements.txt`, the `WHISPER_MODEL` and `EMOTION_MODEL` variables from `docker-compose.yml`, and the Transcript and Emotion cards from `src/components/audio-analyzer.tsx`.
-- [ ] Combine the segment results into the pitch score, insights and feedback. Keep timestamps so feedback can point at a moment in the recording.
-- [ ] Update `AnalysisStage` in `src/lib/analysis.ts` and the stage labels in the UI to match the new steps.
+- [x] Split the decoded audio into segments of at most 30 seconds, cutting at pauses so words are not split.
+- [x] Per segment, call Gemma with the audio and its measurements. Get JSON back: tone, emotion, energy, pace, filler words heard, topics covered.
+- [x] Compute pauses from the signal (intensity and voicing) instead of from Whisper word timestamps.
+- [x] Remove `faster-whisper` and the wav2vec2 pipeline from `services/audio/app/main.py` and `requirements.txt`, the `WHISPER_MODEL` and `EMOTION_MODEL` variables from `docker-compose.yml`, and the Transcript and Emotion cards from `src/components/audio-analyzer.tsx`.
+- [x] Combine the segment results into the pitch score, insights and feedback. Keep timestamps so feedback can point at a moment in the recording. The rubric in the prompt is provisional until section 5.
+- [x] Update `AnalysisStage` in `src/lib/analysis.ts` and the stage labels in the UI to match the new steps.
 
 ## 3. Slide analysis
 
@@ -46,7 +46,7 @@ Do this first. Requirement 3 rests on it, and the official documentation lists o
 ## 5. Scoring
 
 - [ ] Write the rubric for the slides and the rubric for the pitch: the criteria and what each level means. The hackathon's own Delivery criteria are a possible starting point.
-- [ ] Fix a JSON schema for the result. Validate the model output and retry when it does not parse.
+- [ ] Fix a JSON schema for the result. Validate the model output and retry when it does not parse. Parsing and one retry exist; field-level validation does not.
 - [ ] Make scores repeatable: use greedy decoding and fixed prompts, then run the same input three times and compare.
 - [ ] State in the UI that the scores rate the deck and the delivery, not the business idea.
 

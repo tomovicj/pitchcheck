@@ -3,7 +3,8 @@ fastapi
 uvicorn[standard]
 python-multipart
 numpy
-faster-whisper
 praat-parselmouth
-transformers
+# Gemma 4 support landed in transformers 5.5; 5.19 is the version this was checked against
+transformers>=5.19
+accelerate
 torch

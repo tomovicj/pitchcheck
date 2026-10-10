@@ -9,8 +9,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY scripts ./scripts
 
-# Whisper and emotion models are downloaded here on first start
+# Gemma weights are downloaded here on first start
 ENV HF_HOME=/models/hf
 
 EXPOSE 8000
