@@ -3,6 +3,7 @@
 import json
 import os
 import queue
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -42,13 +43,15 @@ app = FastAPI(title="pitchcheck-audio", lifespan=lifespan)
 
 
 def decode(path: str) -> np.ndarray:
-    """Decode any ffmpeg-readable file to 16 kHz mono float32."""
+    """Decode the audio track of any ffmpeg-readable audio or video file to 16 kHz mono float32."""
     result = subprocess.run(
-        ["ffmpeg", "-nostdin", "-i", path, "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "f32le", "-"],
+        ["ffmpeg", "-nostdin", "-i", path, "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "f32le", "-"],
         capture_output=True,
     )
+    if b"does not contain any stream" in result.stderr:
+        raise HTTPException(400, "The file has no audio track")
     if result.returncode != 0:
-        raise HTTPException(400, "Could not decode audio file")
+        raise HTTPException(400, "Could not decode the file")
     return np.frombuffer(result.stdout, dtype=np.float32)
 
 
@@ -156,9 +159,13 @@ def run_analysis(audio: np.ndarray, report: Callable[[str, float], None]) -> dic
     }
 
 
-def load_upload(file: UploadFile) -> np.ndarray:
+def load_upload(file: UploadFile | None) -> np.ndarray:
+    if file is None:
+        raise HTTPException(400, "No file uploaded")
+
+    # Copy in chunks: uploads can be large videos
     with tempfile.NamedTemporaryFile(suffix=os.path.splitext(file.filename or "")[1]) as tmp:
-        tmp.write(file.file.read())
+        shutil.copyfileobj(file.file, tmp)
         tmp.flush()
         audio = decode(tmp.name)
 
@@ -173,12 +180,12 @@ def health():
 
 
 @app.post("/analyze")
-def analyze(file: UploadFile = File(...)):
+def analyze(file: UploadFile | None = File(None)):
     return run_analysis(load_upload(file), lambda *_: None)
 
 
 @app.post("/analyze/stream")
-def analyze_stream(file: UploadFile = File(...)):
+def analyze_stream(file: UploadFile | None = File(None)):
     """Same as /analyze, but streams NDJSON progress events before the result."""
     audio = load_upload(file)
     events = queue.Queue()

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileAudio, Loader2, Upload } from "lucide-react";
+import { FileAudio, FileVideo, Loader2, Upload } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +30,7 @@ function variationLabel(semitones: number) {
 }
 
 const STAGE_LABELS: Record<AnalysisStage | "uploading", string> = {
-  uploading: "Uploading and decoding audio",
+  uploading: "Uploading and extracting audio",
   transcribing: "Transcribing speech",
   analyzing_pitch: "Analyzing pitch and loudness",
   detecting_emotion: "Detecting emotion",
@@ -72,7 +72,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 
 export function AudioAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,12 +80,14 @@ export function AudioAnalyzer() {
 
   function selectFile(next: File | undefined) {
     if (!next) return;
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(next);
-    setAudioUrl(URL.createObjectURL(next));
+    setPreviewUrl(URL.createObjectURL(next));
     setResult(null);
     setError(null);
   }
+
+  const isVideo = file?.type.startsWith("video/") ?? false;
 
   async function analyze() {
     if (!file) return;
@@ -121,7 +123,8 @@ export function AudioAnalyzer() {
         <CardHeader>
           <CardTitle>Upload a recording</CardTitle>
           <CardDescription>
-            MP3, WAV, M4A, OGG or any other audio format. Everything is analyzed locally.
+            Audio (MP3, WAV, M4A…) or video (MP4, MOV, WebM…). For video, only the audio track is
+            analyzed. Everything runs locally.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -142,7 +145,11 @@ export function AudioAnalyzer() {
           >
             {file ? (
               <>
-                <FileAudio className="text-muted-foreground size-8" />
+                {isVideo ? (
+                  <FileVideo className="text-muted-foreground size-8" />
+                ) : (
+                  <FileAudio className="text-muted-foreground size-8" />
+                )}
                 <span className="font-medium">{file.name}</span>
                 <span className="text-muted-foreground text-xs">
                   {(file.size / 1024 / 1024).toFixed(1)} MB · click or drop to replace
@@ -151,18 +158,23 @@ export function AudioAnalyzer() {
             ) : (
               <>
                 <Upload className="text-muted-foreground size-8" />
-                <span className="font-medium">Drop an audio file here or click to browse</span>
+                <span className="font-medium">Drop an audio or video file here or click to browse</span>
               </>
             )}
             <input
               type="file"
-              accept="audio/*"
+              accept="audio/*,video/*"
               className="sr-only"
               onChange={(e) => selectFile(e.target.files?.[0])}
             />
           </label>
 
-          {audioUrl && <audio controls src={audioUrl} className="w-full" />}
+          {previewUrl &&
+            (isVideo ? (
+              <video controls src={previewUrl} className="max-h-96 w-full rounded-lg bg-black" />
+            ) : (
+              <audio controls src={previewUrl} className="w-full" />
+            ))}
 
           <Button onClick={analyze} disabled={!file || !!status} className="self-start">
             {status && <Loader2 className="animate-spin" />}
