@@ -75,10 +75,9 @@ docker compose up --build
 
 The web app is on http://localhost:3000 and the audio service on http://localhost:8000. The first start downloads the Gemma weights (several GB), which can take a while. If Hugging Face asks for the Gemma license to be accepted, export `HF_TOKEN` before starting.
 
-From prebuilt images, on a machine that should not build them: every push to `main` publishes both images to GitHub Container Registry (`.github/workflows/images.yml`). The repository is private, so log in once with a GitHub token that has the `read:packages` scope, copy `docker-compose.yml` over, and pull:
+From prebuilt images, on a machine that should not build them: every push to `main` publishes both images to GitHub Container Registry (`.github/workflows/images.yml`) for `linux/amd64` and `linux/arm64`, so they run natively on x86 machines and on Apple Silicon. The images are public, so no login is needed. Copy `docker-compose.yml` over, and pull:
 
 ```bash
-docker login ghcr.io -u tomovicj
 docker compose pull
 docker compose up -d
 ```
