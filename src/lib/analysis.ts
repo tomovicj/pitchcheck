@@ -58,6 +58,9 @@ export type ChecklistItem = {
   number?: boolean;
 };
 
+// A statement Gemma heard or read, with the label it gave it; kept for checking the labels, not shown
+export type LabelledStatement = { statement: string; label: string; at_s?: number; slide?: number };
+
 // The 0-100 score of each group of criteria; a group with nothing rated is missing
 export type Subscores = Partial<Record<"content" | "delivery" | "design", number>>;
 
@@ -98,8 +101,10 @@ export type PitchSummary = {
   subscores: Subscores;
   // Every level is given in code, from the signal and from the statements Gemma named for each expected topic
   criteria: Criterion[];
-  // Empty when Gemma's reply to the checklist could not be used
+  // Empty when Gemma's labels could not be used
   checklist: ChecklistItem[];
+  // Every statement with its label; Gemma's replies as text when they could not be used
+  labelled: LabelledStatement[] | string[];
   insights: string[];
   feedback: { at_s: number | null; text: string }[];
 };
@@ -163,8 +168,10 @@ export type DeckSummary = {
   subscores: Subscores;
   // Every level is given in code, from the file and from the lines Gemma named for each expected topic
   criteria: Criterion[];
-  // Empty when Gemma's reply to the checklist could not be used
+  // Empty when Gemma's labels could not be used
   checklist: ChecklistItem[];
+  // Every line with its label; Gemma's replies as text when they could not be used
+  labelled: LabelledStatement[] | string[];
   insights: string[];
   feedback: { slide: number | null; text: string }[];
 };

@@ -486,20 +486,18 @@ def describe_slide(slide: dict) -> str:
     return " ".join(parts)
 
 
-# How the checklist prompt names a deck; see rubric.CHECK_PROMPT
-SLIDES = {
-    "kind": "startup pitch deck",
-    "heard": "What each slide says, in order, as you read it",
-    "plural": "decks",
-}
+# How the labelling prompt names a deck; see rubric.LABEL_PROMPT
+SLIDES = {"kind": "startup pitch deck", "heard": "What each slide says, in order, as you read it"}
 
 FEEDBACK_PROMPT = """You are a presentation coach giving feedback on a startup pitch deck. It was rated against a fixed rubric, each criterion on a level from 0 (worst) to 4 (best). Comment on what the deck says and on how it is designed, never on the business idea or its market potential.
 
 The deck has {count} slides. What each slide shows, as you read it earlier, with numbers from the file where it has a text layer:
 {slides}
 
-How the deck was rated:
+What the rating found to improve, the lowest level first:
 {findings}
+
+At the top level, with nothing to change: {strengths}.
 
 Problems measured in the file:
 {problems}
@@ -507,7 +505,7 @@ Problems measured in the file:
 Reply with only a JSON object in this shape:
 {{"insights": ["what the review found, 3 to 5 short statements"],
  "feedback": [{{"slide": 1, "text": "one concrete thing to change"}}]}}
-Give 3 to 6 feedback items. Take the criteria with the lowest levels first: name the slide and the number that was measured, or the topic that is missing, and say what to do about it. Give no feedback on a criterion at level 4. Set slide to the number of the slide the feedback refers to, or null if it applies to the whole deck."""
+Give one feedback item for each finding above, in the same order, at most 6: name the slide and the number that was measured, or the topic that is missing, and say what to do about it. Write for the team: say what to change, and do not mention levels or the names of criteria. Give no feedback on what is at the top level. Set slide to the number of the slide the feedback refers to, or null if it applies to the whole deck."""
 
 
 def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, str]) -> dict:
@@ -518,7 +516,7 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
     texts holds the text of each page in the file, by slide number.
     """
     rated = rate_design(slides, page_count)
-    checklist = rubric.run_checklist(
+    checklist, labelled = rubric.run_checklist(
         ask, [(f"Slide {s['number']}:", {"slide": s["number"]}, slide_statements(s)) for s in slides], **SLIDES
     )
     # Content is rated as a whole or not at all: plain language alone would pass for a deck that says nothing
@@ -537,6 +535,8 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
         "criteria": criteria,
         # Where the deck says each expected thing; empty when Gemma's reply could not be used
         "checklist": checklist or [],
+        # Every line with the label Gemma gave it, for checking the labels; its replies when they could not be used
+        "labelled": labelled,
         "insights": [],
         "feedback": [],
     }
@@ -544,14 +544,14 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
         # Nothing was read, so there is nothing for Gemma to comment on; the file measurements still stand
         return summary
 
-    findings = [f"- {c['name']}: level {c['level']} of 4. {c['reason']} Level 4 takes: {c['target']}." for c in criteria]
+    found = rubric.findings(criteria)
     if not any(s["measurements"] for s in slides):
-        findings.append("- The PDF has no text layer, so text size, word count, contrast and consistency were not measured.")
+        found["findings"] += "\n- The PDF has no text layer, so text size, word count, contrast and consistency were not measured."
     prompt = FEEDBACK_PROMPT.format(
         count=page_count,
         slides="\n".join(describe_slide(s) for s in slides),
-        findings="\n".join(findings),
         problems="\n".join(measured_problems(slides)) or "(none)",
+        **found,
     )
     reply, _ = ask([{"type": "text", "text": prompt}])
     reply = reply or {}

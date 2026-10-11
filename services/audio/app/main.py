@@ -465,12 +465,8 @@ def observe_segment(clip: np.ndarray, start: float, end: float, measurements: di
     return {"observations": observations, **({} if observations else {"raw": raw})}
 
 
-# How the checklist prompt names a spoken pitch; see rubric.CHECK_PROMPT
-SPEECH = {
-    "kind": "spoken startup pitch",
-    "heard": "What the speaker said, in order, as you heard it",
-    "plural": "pitches",
-}
+# How the labelling prompt names a spoken pitch; see rubric.LABEL_PROMPT
+SPEECH = {"kind": "spoken startup pitch", "heard": "What the speaker said, in order, as you heard it"}
 
 FEEDBACK_PROMPT = """You are a presentation coach giving feedback on a startup pitch. It was rated against a fixed rubric, each criterion on a level from 0 (worst) to 4 (best). Comment on what the pitch says and on how it is delivered, never on the business idea or its market potential.
 {no_state}
@@ -482,13 +478,15 @@ Pauses: {pauses}
 What you heard in each segment:
 {segments}
 
-How the pitch was rated:
+What the rating found to improve, the lowest level first:
 {findings}
+
+At the top level, with nothing to change: {strengths}.
 
 Reply with only a JSON object in this shape:
 {{"insights": ["what the analysis found, 3 to 5 short statements"],
  "feedback": [{{"at_s": 0, "text": "one concrete thing to change"}}]}}
-Give 3 to 5 feedback items. Take the criteria with the lowest levels first, one item each: name the number that was measured or the topic that is missing, and say what to do about it. Give no feedback on a criterion at level 4. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
+Give one feedback item for each finding above, in the same order, at most 5: name the number that was measured or the topic that is missing, and say what to do about it. Write for the team: say what to change, and do not mention levels or the names of criteria. Give no feedback on what is at the top level. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
 A voice whose pitch moves and whose loudness stays easy to hear helps a listener: never advise a flatter or more even pitch."""
 
 
@@ -629,7 +627,7 @@ def score_pitch(
     # Without a single parsed segment there is no filler count to rate and nothing to check for content
     if any(s["observations"] for s in segments):
         rated[FILLER_CRITERION] = rate_fillers(fillers)
-    checklist = rubric.run_checklist(
+    checklist, labelled = rubric.run_checklist(
         ask_gemma,
         [(f"From {span(s)}:", {"at_s": s["start_s"]}, statements(s)) for s in segments],
         **SPEECH,
@@ -656,9 +654,7 @@ def score_pitch(
         measurements=describe_measurements(prosody),
         pauses=json.dumps(pauses),
         segments="\n".join(described),
-        findings="\n".join(
-            f"- {c['name']}: level {c['level']} of 4. {c['reason']} Level 4 takes: {c['target']}." for c in criteria
-        ),
+        **rubric.findings(criteria),
     )
     reply, _ = ask_gemma([{"type": "text", "text": prompt}])
     reply = reply or {}
@@ -674,6 +670,8 @@ def score_pitch(
         "criteria": criteria,
         # Where the pitch says each expected thing; empty when Gemma's reply could not be used
         "checklist": checklist or [],
+        # Every statement with the label Gemma gave it, for checking the labels; its replies when they could not be used
+        "labelled": labelled,
         "insights": rubric.strings(reply.get("insights"), 5),
         "feedback": feedback[:5],
     }

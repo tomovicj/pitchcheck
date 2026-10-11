@@ -2,10 +2,10 @@
 
 A rubric is a set of criteria in groups. Each criterion has five level descriptions, from level 4 down
 to level 0, and every level is a count, a share or a measurement, so code gives it. Gemma supplies what
-is counted: it listens and reads, and for each thing a pitch is expected to say it names the statements
-that say it, out of the ones it heard or read. Gemma did not apply numeric limits reliably when asked
-to, and a checklist of yes-or-no findings is steadier than a level given from an impression (CheckEval,
-Lee et al., EMNLP 2025, arXiv:2403.18771).
+is counted: it listens and reads, and it labels each statement it heard or read with the thing a pitch
+is expected to say that the statement says, or with none. Gemma did not apply numeric limits reliably
+when asked to, and a checklist of yes-or-no findings is steadier than a level given from an impression
+(CheckEval, Lee et al., EMNLP 2025, arXiv:2403.18771).
 
 The standards are Y Combinator's published advice to founders (SOURCES), read on 11 October 2026. The
 limits that turn a standard into levels are this team's choice unless a comment says otherwise.
@@ -53,29 +53,26 @@ PITCH_TOPICS: dict[str, str] = {
     for name, meaning in (
         json.loads(os.getenv("PITCH_TOPICS") or "null")
         or {
-            "problem": "what goes wrong today, and for whom",
-            "solution": "how the product solves that problem for its user",
-            "market": "how many customers there are, or how much they spend",
-            "traction": "what the team has done so far: what is built, launched, sold or tested, and with what result",
-            "unique insight": "what the team knows or does that others do not: why this works, why now, "
+            "problem": "says what goes wrong today, and for whom",
+            "solution": "says how the product works or what it does for its user",
+            "market": "says who the customers are, how many of them there are, or how much they spend",
+            "traction": "says what the team has done so far: what is built, launched, sold or tested, and with what result",
+            "unique insight": "says what the team knows or does that others do not: why this works, why now, "
                               "or why it beats what people use today",
-            "business model": "how it makes money: who pays, and for what",
-            "team": "who the founders are and why they fit this problem",
-            "ask": "what the team wants from the audience: an investment, a pilot, a sign-up, a next step",
+            "business model": "says how it makes money: who pays, how much, and for what",
+            "team": "says who the founders are or why they fit this problem",
+            "ask": "says what the team wants from the audience: an investment, a pilot, a sign-up, a next step",
         }
     ).items()
 }
 # Rated on its own, because where it is said matters as much as that it is said
 OPENING = "what it does"
-OPENING_MEANING = "the first statement that names the company or the product and says what it makes, and for whom"
+OPENING_MEANING = "names the company or the product and says in one sentence what it makes, and for whom"
 # Explained only by a statement that carries a number: "Make the numbers clear and meaningful" (Harris)
 NUMBER_TOPICS = [topic for topic in ("market", "traction") if topic in PITCH_TOPICS]
 CHECKLIST = {OPENING: OPENING_MEANING, **PITCH_TOPICS}
-# For the prompts: Gemma mixed up problem and solution when it was given the names alone
-CHECKLIST_GUIDE = "\n".join(
-    f"- {name}: {meaning}" + ("; include the statement that has the number" if name in NUMBER_TOPICS else "")
-    for name, meaning in CHECKLIST.items()
-)
+# For the prompt: Gemma mixed up problem and solution when it was given the names alone
+CHECKLIST_GUIDE = "\n".join(f"- {name}: {meaning}" for name, meaning in CHECKLIST.items())
 
 TOPIC_CRITERION = "Topic coverage"
 TOPIC_LEVELS = [
@@ -122,61 +119,96 @@ def buzzwords(text: str) -> list[str]:
 
 Ask = Callable[..., tuple[dict | None, str]]
 
-# Statements Gemma may name for one item: the one that says it, and the one that carries its number
-STATEMENTS_PER_ITEM = 2
+# Statements Gemma labels in one call: its reply has an entry for each and must fit in the output limit
+STATEMENTS_PER_CALL = 40
+# Statements shown for one item of the checklist
+QUOTED_PER_ITEM = 2
 
-CHECK_PROMPT = """You are checking what a {kind} says against a checklist. Check only whether each thing is said, never whether the business idea is good.
+# Gemma gives each statement a label. Asked the other way round, for the statements that say each item,
+# the checklist came back empty for all nine, on a pitch and a deck that say most of them (Kaggle T4,
+# 11 October 2026). That prompt showed the reply's shape with empty lists; the reply itself was not
+# kept, so whether Gemma gave the shape back is a guess. Here the shape cannot pass for an answer, the
+# replies are kept, and the question is the kind Gemma answered sensibly before, when it named the
+# topics of each segment.
+LABEL_PROMPT = """You are sorting the statements of a {kind} by what each one tells the audience. Sort only; do not judge the business idea.
 
 {heard}. Each statement has a number in brackets:
 {statements}
 
-For each item of the checklist, give the numbers of the statements that say it: at most two, the clearest ones. Give an empty list when no statement says it; most {plural} leave some items out. A statement counts for an item only when it says that thing itself. Do not stretch a statement about one item to cover another, and do not fill an item because a pitch ought to have it.
-
-Checklist:
+Give every statement one label: the line below that describes it, or "none".
 {checklist}
+- none: a greeting, a thank-you, a question, a bare heading such as "Our team", or a statement that fits no line above
 
-Reply with only a JSON object in this shape, with one entry for each item of the checklist:
-{shape}"""
+A statement gets a label for what it says itself, not for what the statements around it say. When it fits two labels, give the one it says most directly.
+
+Reply with only a JSON object that gives each statement number its label, in this shape:
+{{"{first}": "<label>", ...and so on for every statement up to "{last}": "<label>"}}"""
 
 
-def run_checklist(ask: Ask, groups: list[tuple[str, dict, list[str]]], **wording: str) -> list[dict] | None:
-    """Ask Gemma which statements say each item of CHECKLIST; None when there are no statements or its reply does not parse.
+def label_of(value: object) -> str | None:
+    """The item of CHECKLIST a label names; None for "none" and for anything else Gemma wrote."""
+    # Gemma sometimes gives the name with its meaning after a colon or in brackets
+    name = re.split(r"[:(]", str(value))[0].strip(" \"'<>.").lower()
+    return name if name in CHECKLIST else None
+
+
+def run_checklist(ask: Ask, groups: list[tuple[str, dict, list[str]]], **wording: str) -> tuple[list[dict] | None, list]:
+    """Ask Gemma to label each statement with the item of CHECKLIST it says, and turn the labels into a checklist.
 
     groups holds, for each segment of speech or each slide, a heading, where it is ({"at_s": seconds} or
-    {"slide": number}) and its statements as Gemma heard or read them. Gemma answers with statement
-    numbers, so what counts for an item is always something it heard or read, and never a quote made up
-    for the answer. One line comes back per item: whether it is said, the statements, and the place of
-    the first. For a topic that needs a number, "number" tells whether those statements carry one.
+    {"slide": number}) and its statements as Gemma heard or read them. What counts for an item is always
+    one of those statements, never words made up for the answer.
+
+    The checklist has a line for each item: whether a statement says it, the statements, and the place of
+    the first. For a topic that needs a number, "number" tells whether a statement about it carries one.
+    With it comes every statement and its label, for checking the labels. The checklist is None when
+    there is nothing to label or no statement got a label: a reply that cannot be used must not count as
+    a pitch that says nothing. What Gemma replied comes back in its place.
     """
-    numbered, lines = {}, []
+    numbered = {}
     for heading, where, statements in groups:
-        lines.append(heading)
         for statement in statements:
-            numbered[len(numbered) + 1] = (statement, where)
-            lines.append(f"  [{len(numbered)}] {statement}")
-    if not numbered:
-        return None
-    prompt = CHECK_PROMPT.format(
-        statements="\n".join(lines),
-        checklist=CHECKLIST_GUIDE,
-        shape=json.dumps({item: [] for item in CHECKLIST}),
-        **wording,
-    )
-    reply, _ = ask([{"type": "text", "text": prompt}])
-    if reply is None:
-        return None
+            numbered[len(numbered) + 1] = (statement, where, heading)
+
+    labels, replies = {}, []
+    numbers = list(numbered)
+    for start in range(0, len(numbers), STATEMENTS_PER_CALL):
+        batch = numbers[start : start + STATEMENTS_PER_CALL]
+        lines, heading = [], None
+        for n in batch:
+            if numbered[n][2] != heading:
+                heading = numbered[n][2]
+                lines.append(heading)
+            lines.append(f"  [{n}] {numbered[n][0]}")
+        prompt = LABEL_PROMPT.format(
+            statements="\n".join(lines), checklist=CHECKLIST_GUIDE, first=batch[0], last=batch[-1], **wording
+        )
+        reply, raw = ask([{"type": "text", "text": prompt}])
+        replies.append(raw)
+        for key, value in (reply or {}).items():
+            number = re.search(r"\d+", str(key))
+            if number and int(number.group()) in batch and (label := label_of(value)):
+                labels[int(number.group())] = label
+    if not labels:
+        return None, replies
 
     checklist = []
     for item in CHECKLIST:
-        named = reply.get(item)
-        picked = sorted({n for n in (named if isinstance(named, list) else [named]) if type(n) is int and n in numbered})
-        picked = picked[:STATEMENTS_PER_ITEM]
-        quote = " ".join(numbered[n][0] for n in picked)
-        entry = {"item": item, "found": bool(picked), "quote": quote, **(numbered[picked[0]][1] if picked else {})}
+        said = [n for n in sorted(labels) if labels[n] == item]
+        with_number = [n for n in said if NUMBER.search(numbered[n][0])]
+        # Of a topic that needs a number, the statements that carry one are the ones to show
+        shown = sorted((with_number if item in NUMBER_TOPICS and with_number else said)[:QUOTED_PER_ITEM])
+        entry = {
+            "item": item,
+            "found": bool(said),
+            "quote": " ".join(numbered[n][0] for n in shown),
+            **(numbered[said[0]][1] if said else {}),
+        }
         if item in NUMBER_TOPICS:
-            entry["number"] = bool(NUMBER.search(quote))
+            entry["number"] = bool(with_number)
         checklist.append(entry)
-    return checklist
+    labelled = [{"statement": numbered[n][0], "label": labels.get(n, "none"), **numbered[n][1]} for n in numbered]
+    return checklist, labelled
 
 
 def rate_topics(checklist: list[dict]) -> dict:
@@ -231,6 +263,22 @@ def total(
         return criteria, None, subscores
     score = sum(group_weights[group] * share for group, share in shares.items()) / sum(group_weights.values())
     return criteria, round(score * 20) * 5, subscores
+
+
+def findings(criteria: list[dict]) -> dict[str, str]:
+    """The rated criteria as the feedback prompts take them.
+
+    "findings" lists what is below the top level, lowest first, with what the top level takes;
+    "strengths" names what is at it. Gemma gave feedback on a criterion at the top level when it was
+    shown that criterion's numbers, so those are left out.
+    """
+    weak = sorted((c for c in criteria if c["level"] < 4), key=lambda c: c["level"])
+    return {
+        "findings": "\n".join(
+            f"- {c['name']}, level {c['level']} of 4: {c['reason']} The top level takes: {c['target']}." for c in weak
+        ) or "(nothing: every criterion is at the top level)",
+        "strengths": ", ".join(c["name"].lower() for c in criteria if c["level"] == 4) or "nothing",
+    }
 
 
 def share_levels(problem: str) -> list[str]:
