@@ -15,7 +15,7 @@ export function PitchHero() {
       <div className="hero-showcase"><ProductShowcase /></div>
       <div className="capability-strip">
         <div className="capability-item"><AudioLines aria-hidden="true" /><div><strong>Make yourself heard.</strong><p>Feedback on your pitch delivery.</p></div></div>
-        <div className="capability-item"><PanelsTopLeft aria-hidden="true" /><div><strong>Let your slides tell the story.</strong><p>PDF uploads ready. Slide analysis coming soon.</p></div></div>
+        <div className="capability-item"><PanelsTopLeft aria-hidden="true" /><div><strong>Let your slides tell the story.</strong><p>A score for your deck, with feedback by slide.</p></div></div>
         <div className="capability-item"><RefreshCw aria-hidden="true" /><div><strong>Practice with a purpose.</strong><p>Take feedback into your next recording.</p></div></div>
       </div>
     </section>

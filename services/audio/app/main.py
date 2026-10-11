@@ -1,11 +1,12 @@
 """Local pitch delivery analysis: signal measurements with Praat, judgement with Gemma."""
 
+import hashlib
 import json
 import logging
 import os
+import pathlib
 import queue
 import re
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -17,7 +18,7 @@ from typing import TypeVar
 import numpy as np
 import parselmouth
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from transformers import AutoModelForMultimodalLM, AutoProcessor, GenerationConfig
 from transformers.generation.streamers import BaseStreamer
@@ -39,19 +40,23 @@ PAUSE_THRESHOLD_S = 0.5
 SILENCE_BELOW_PEAK_DB = 25.0
 MAX_DECK_BYTES = 50 * 2**20
 
-# Rated in code from the filler words Gemma heard: the level is arithmetic on the count, and Gemma
-# did not apply the numeric limits reliably when asked to
+# Rated in code from what Gemma heard in each segment: the level is arithmetic on a count or a share,
+# and Gemma did not apply numeric limits reliably when asked to. It called 5.7 filler words a minute
+# "5 or fewer", and a pitch with two expected topics missing complete. Topic coverage is rated the same way.
+PACE_CRITERION = "Pace"
 FILLER_CRITERION = "Filler words"
+# Rated in code, and only when the event's time limit came with the recording
+TIME_CRITERION = "Time"
 
 # Delivery rubric: one description per level, from 4 down to 0. Levels describe what is heard or measured,
 # never the speaker's state of mind. Only the filler word levels rest on research (Laske and DiGennaro Reed
 # 2024, one study, English; nothing is known between 5 and 12 per minute). The rest are conventions.
 RUBRIC = {
-    "Pace": [
-        "conversational pace in every part of the pitch",
-        "one short part is fast or slow",
-        "several parts are fast or slow",
-        "most of the pitch is fast or slow",
+    PACE_CRITERION: [
+        "conversational pace throughout",
+        "up to a fifth of the pitch is fast or slow",
+        "up to half of the pitch is fast or slow",
+        "more than half of the pitch is fast or slow",
         "the whole pitch is fast or slow",
     ],
     FILLER_CRITERION: [
@@ -82,15 +87,25 @@ RUBRIC = {
         "most parts are quiet or uneven",
         "most of the recording is hard to hear",
     ],
-    "Completeness and structure": [
-        "every expected topic is explained, with an opening and a closing message",
-        "one expected topic is missing or only mentioned",
-        "several expected topics are missing, or there is no closing message",
-        "most expected topics are missing",
-        "almost no expected topic is explained, and there is no opening or closing",
+    TIME_CRITERION: [
+        "within the event's time limit",
+        "over the limit by up to 5%",
+        "over the limit by up to 10%",
+        "over the limit by up to 20%",
+        "over the limit by more than 20%",
+    ],
+    rubric.TOPIC_CRITERION: rubric.TOPIC_LEVELS,
+    "Structure and flow": [
+        "opens by saying what the team does, the topics follow in an order a listener can track, "
+        "and it ends with a closing message or a next step",
+        "one of the three is weak",
+        "one of the three is missing",
+        "two of the three are missing",
+        "no opening, no order and no closing",
     ],
 }
-GEMMA_CRITERIA = [name for name in RUBRIC if name != FILLER_CRITERION]
+# Gemma rates the criteria whose levels are a judgement of what it heard, next to the measurements
+GEMMA_CRITERIA = ["Pauses", "Pitch variation", "Loudness", "Structure and flow"]
 
 T = TypeVar("T")
 
@@ -180,6 +195,8 @@ def analyze_pauses(silences: list[tuple[float, float]], duration: float) -> dict
         "longest_pause_s": round(max(pauses), 2) if pauses else 0.0,
         # Share of the time between first and last sound spent talking
         "speaking_ratio": round(speaking / (duration - edges), 2) if duration > edges else 0.0,
+        # From the first sound to the last: the length of the pitch without leading and trailing silence
+        "spoken_s": round(duration - edges, 2),
     }
 
 
@@ -329,7 +346,7 @@ Reply with only a JSON object in this shape:
  "pace": "slow" | "conversational" | "fast",
  "filler_words": ["every filler word or sound in the order you hear it, repeated each time it is said, e.g. um, uh, um, like"],
  "topics": ["the name of each topic this segment explains, from: {topics}"],
- "key_points": ["up to 4 short statements of what the speaker says in this segment, keeping numbers and names as spoken"],
+ "key_points": ["every statement the speaker makes in this segment, each as one short sentence, in order, keeping numbers and names as spoken; at most 12"],
  "observations": "one or two sentences on what works and what does not in this delivery"}}"""
 
 
@@ -362,10 +379,11 @@ Give each criterion the level, from 4 down to 0, whose description fits best:
 {rubric}
 
 Reply with only a JSON object in this shape:
-{{"criteria": [{{"name": "Pace", "reason": "one sentence naming the measurement or the moment it rests on", "level": 0}}, ...one entry per criterion above, in the same order],
+{{"criteria": [{{"name": "Pauses", "reason": "one sentence naming the measurement or the moment it rests on", "level": 0}}, ...one entry per criterion above, in the same order],
  "insights": ["what the analysis found, 3 to 5 short statements"],
  "feedback": [{{"at_s": 0, "text": "one concrete thing to change"}}]}}
-Give 3 to 5 feedback items. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch."""
+Give 3 to 5 feedback items. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
+A voice whose pitch moves and whose loudness stays easy to hear helps a listener: never advise a flatter or more even pitch."""
 
 
 def count_fillers(segments: list[dict], duration: float) -> dict:
@@ -384,21 +402,46 @@ def rate_fillers(fillers: dict) -> dict:
     return {"name": FILLER_CRITERION, "reason": reason, "level": level}
 
 
-def rate(criteria: object, fillers: dict | None) -> tuple[list[dict], int | None]:
-    """Keep the rubric criteria with a valid level and turn the levels into a 0-100 score in steps of 5.
+def rate_time(spoken_s: float, limit_s: float) -> dict:
+    """The time criterion, from the first sound to the last; limits as in RUBRIC. Finishing early is not marked down."""
+    # Whole seconds: half a second of trailing breath is not an overrun
+    over = round(spoken_s) / limit_s - 1
+    level = 4 if over <= 0 else 3 if over <= 0.05 else 2 if over <= 0.1 else 1 if over <= 0.2 else 0
+    reason = (
+        f"{format_time(round(spoken_s))} from the first sound to the last, against a limit of "
+        f"{format_time(limit_s)} ({RUBRIC[TIME_CRITERION][4 - level]})."
+    )
+    return {"name": TIME_CRITERION, "reason": reason, "level": level}
+
+
+def rate_pace(segments: list[dict]) -> dict | None:
+    """The pace criterion, from the share of the heard time that Gemma called fast or slow; limits as in RUBRIC."""
+    heard = [s for s in segments if (s["observations"] or {}).get("pace") in ("slow", "conversational", "fast")]
+    if not heard:
+        return None
+    uneven = [s for s in heard if s["observations"]["pace"] != "conversational"]
+    share = sum(s["end_s"] - s["start_s"] for s in uneven) / sum(s["end_s"] - s["start_s"] for s in heard)
+    level = 4 if share == 0 else 3 if share <= 0.2 else 2 if share <= 0.5 else 1 if share < 1 else 0
+    parts = ", ".join(f"{s['observations']['pace']} from {format_time(s['start_s'])} to {format_time(s['end_s'])}" for s in uneven)
+    reason = f"Gemma heard a pace that is {parts}." if uneven else "Gemma heard a conversational pace in every segment."
+    return {"name": PACE_CRITERION, "reason": reason, "level": level}
+
+
+def rate(criteria: object, counted: dict[str, dict]) -> tuple[list[dict], int | None]:
+    """Gemma's valid levels and the criteria rated in code, as one 0-100 score in steps of 5.
 
     Equal weights; a criterion without a valid level drops out of the score instead of counting as 0.
     """
     rated = rubric.gemma_levels(criteria, GEMMA_CRITERIA)
-    # No score from the filler count alone when Gemma rated nothing
+    # No score from the counts alone when Gemma rated nothing
     if not rated:
         return [], None
-    if fillers is not None:
-        rated[FILLER_CRITERION] = rate_fillers(fillers)
-    return rubric.total(RUBRIC, rated)
+    return rubric.total(RUBRIC, {**rated, **counted})
 
 
-def score_pitch(duration: float, prosody: dict | None, pauses: dict, fillers: dict, segments: list[dict]) -> dict | None:
+def score_pitch(
+    duration: float, prosody: dict | None, pauses: dict, fillers: dict, segments: list[dict], time_limit_s: float | None
+) -> dict | None:
     described = []
     for s in segments:
         observations = json.dumps(s["observations"]) if s["observations"] else "(no observations)"
@@ -420,9 +463,18 @@ def score_pitch(duration: float, prosody: dict | None, pauses: dict, fillers: di
     if summary is not None:
         # The overall score is arithmetic over the levels, so the same levels always give the same score.
         # Without a single parsed segment there is no filler count to rate and no topic was heard or missed.
-        heard = any(s["observations"] for s in segments)
-        summary["criteria"], summary["pitch_score"] = rate(summary.get("criteria"), fillers if heard else None)
-        summary["missing_topics"] = missing if heard else []
+        counted = {}
+        if any(s["observations"] for s in segments):
+            counted[FILLER_CRITERION] = rate_fillers(fillers)
+            counted[rubric.TOPIC_CRITERION] = rubric.rate_topics(missing)
+            if (pace := rate_pace(segments)) is not None:
+                counted[PACE_CRITERION] = pace
+        else:
+            missing = []
+        if time_limit_s:
+            counted[TIME_CRITERION] = rate_time(pauses["spoken_s"], time_limit_s)
+        summary["criteria"], summary["pitch_score"] = rate(summary.get("criteria"), counted)
+        summary["missing_topics"] = missing
     return summary
 
 
@@ -430,8 +482,11 @@ def format_time(seconds: float) -> str:
     return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
 
 
-def run_analysis(audio: np.ndarray, report: Callable[[str, float], None]) -> dict:
-    """Run every step, reporting (stage, overall 0-1 progress) along the way."""
+def run_analysis(audio: np.ndarray, report: Callable[[str, float], None], time_limit_s: float | None = None) -> dict:
+    """Run every step, reporting (stage, overall 0-1 progress) along the way.
+
+    time_limit_s is the event's limit for the pitch; with it the recording's length is rated too.
+    """
     # Weights reflect where the time goes: one Gemma call per segment dominates
     duration = audio.size / SAMPLE_RATE
     report("measuring", 0.0)
@@ -458,9 +513,10 @@ def run_analysis(audio: np.ndarray, report: Callable[[str, float], None]) -> dic
 
     report("scoring", 0.9)
     fillers = count_fillers(segments, duration)
-    summary = score_pitch(duration, prosody, pauses, fillers, segments) if segments else None
+    summary = score_pitch(duration, prosody, pauses, fillers, segments, time_limit_s) if segments else None
     return {
         "duration_s": round(duration, 2),
+        "time_limit_s": time_limit_s,
         "model": GEMMA_MODEL,
         "prosody": prosody,
         "pauses": pauses,
@@ -470,19 +526,66 @@ def run_analysis(audio: np.ndarray, report: Callable[[str, float], None]) -> dic
     }
 
 
-def load_upload(file: UploadFile | None) -> np.ndarray:
+class Fingerprint:
+    """Salted SHA-256 of an uploaded file, for a verdict that names the file without revealing it.
+
+    The salt is random per upload, so the hash says nothing about the file until the team shows the
+    salt, and the same file hashes differently in every analysis.
+    """
+
+    def __init__(self):
+        self.salt = os.urandom(32)
+        self.digest = hashlib.sha256(self.salt)
+        self.size = 0
+
+    def update(self, chunk: bytes):
+        self.digest.update(chunk)
+        self.size += len(chunk)
+
+    def result(self) -> dict:
+        return {"sha256": self.digest.hexdigest(), "salt": self.salt.hex(), "bytes": self.size}
+
+
+def load_upload(file: UploadFile | None) -> tuple[np.ndarray, dict]:
+    """The decoded audio of an uploaded recording, and the fingerprint of the file."""
     if file is None:
         raise HTTPException(400, "No file uploaded")
 
     # Copy in chunks: uploads can be large videos
+    fingerprint = Fingerprint()
     with tempfile.NamedTemporaryFile(suffix=os.path.splitext(file.filename or "")[1]) as tmp:
-        shutil.copyfileobj(file.file, tmp)
+        while chunk := file.file.read(2**20):
+            fingerprint.update(chunk)
+            tmp.write(chunk)
         tmp.flush()
         audio = decode(tmp.name)
 
     if audio.size < SAMPLE_RATE:
         raise HTTPException(400, "Audio is shorter than 1 second")
-    return audio
+    return audio, fingerprint.result()
+
+
+def code_hash() -> str:
+    """SHA-256 over this package's source: it changes whenever a prompt, a rubric or a limit changes."""
+    digest = hashlib.sha256()
+    for path in sorted(pathlib.Path(__file__).parent.glob("*.py")):
+        # Line endings differ between a Windows checkout and the image built from it
+        digest.update(path.name.encode() + path.read_bytes().replace(b"\r\n", b"\n"))
+    return digest.hexdigest()
+
+
+CODE_SHA256 = code_hash()
+
+
+def describe_setup() -> dict:
+    """What produces an analysis. A verdict carries it so that a re-run can be told apart from a different setup."""
+    model = models.get("gemma")
+    return {
+        "model": GEMMA_MODEL,
+        "dtype": str(model.dtype).removeprefix("torch.") if model is not None else None,
+        "slide_tokens": deck.SLIDE_TOKENS,
+        "code_sha256": CODE_SHA256,
+    }
 
 
 @app.get("/health")
@@ -490,7 +593,8 @@ def health():
     model = models.get("gemma")
     placement = getattr(model, "hf_device_map", {"": str(model.device)} if model is not None else {})
     return {"status": "ok", "analysis_running": analysis_lock.locked(),
-            "model_devices": sorted({str(device) for device in placement.values()})}
+            "model_devices": sorted({str(device) for device in placement.values()}),
+            "setup": describe_setup()}
 
 
 def reserve_analysis():
@@ -498,17 +602,29 @@ def reserve_analysis():
         raise HTTPException(429, "An analysis is already running. Wait for it to finish before starting another.")
 
 
+def positive(seconds: float | None) -> float | None:
+    """The event's time limit, or None when the field was left out or makes no sense."""
+    return seconds if seconds and seconds > 0 else None
+
+
+def run_pitch_analysis(
+    recording: tuple[np.ndarray, dict], report: Callable[[str, float], None], time_limit_s: float | None
+) -> dict:
+    audio, fingerprint = recording
+    return {**run_analysis(audio, report, time_limit_s), "file": fingerprint, "setup": describe_setup()}
+
+
 @app.post("/analyze")
-def analyze(file: UploadFile | None = File(None)):
+def analyze(file: UploadFile | None = File(None), time_limit_s: float | None = Form(None)):
     reserve_analysis()
     try:
-        return run_analysis(load_upload(file), lambda *_: None)
+        return run_pitch_analysis(load_upload(file), lambda *_: None, positive(time_limit_s))
     finally:
         analysis_lock.release()
 
 
-def load_deck(file: UploadFile | None) -> tuple[int, list[dict]]:
-    """Page count and the rendered, measured pages of an uploaded PDF deck."""
+def load_deck(file: UploadFile | None) -> tuple[int, list[dict], dict]:
+    """Page count and the rendered, measured pages of an uploaded PDF deck, and the fingerprint of the file."""
     if file is None:
         raise HTTPException(400, "No deck uploaded")
     data = file.file.read(MAX_DECK_BYTES + 1)
@@ -516,23 +632,36 @@ def load_deck(file: UploadFile | None) -> tuple[int, list[dict]]:
         raise HTTPException(413, f"The deck is larger than {MAX_DECK_BYTES // 2**20} MB")
     if b"%PDF" not in data[:1024]:
         raise HTTPException(400, "The deck must be a PDF file")
+    fingerprint = Fingerprint()
+    fingerprint.update(data)
     try:
-        return deck.read_pdf(data)
+        return *deck.read_pdf(data), fingerprint.result()
     except deck.UnreadablePdf as error:
         raise HTTPException(400, str(error)) from error
 
 
-def run_deck_analysis(page_count: int, pages: list[dict], report: Callable[[str, float], None]) -> dict:
-    return {"model": GEMMA_MODEL, **deck.run_analysis(page_count, pages, ask_gemma, report)}
+def run_deck_analysis(slides: tuple[int, list[dict], dict], report: Callable[[str, float], None]) -> dict:
+    page_count, pages, fingerprint = slides
+    return {
+        "model": GEMMA_MODEL,
+        **deck.run_analysis(page_count, pages, ask_gemma, report),
+        "file": fingerprint,
+        "setup": describe_setup(),
+    }
 
 
-def run_check(audio: np.ndarray, page_count: int, pages: list[dict], report: Callable[[str, float], None]) -> dict:
+def run_check(
+    recording: tuple[np.ndarray, dict],
+    slides: tuple[int, list[dict], dict],
+    report: Callable[[str, float], None],
+    time_limit_s: float | None,
+) -> dict:
     """The pitch, then the deck, then whether the pitch follows the deck."""
-    pitch = run_analysis(audio, lambda stage, p: report(stage, 0.45 * p))
-    slides = run_deck_analysis(page_count, pages, lambda stage, p: report(stage, 0.45 + 0.45 * p))
+    pitch = run_pitch_analysis(recording, lambda stage, p: report(stage, 0.45 * p), time_limit_s)
+    reviewed = run_deck_analysis(slides, lambda stage, p: report(stage, 0.45 + 0.45 * p))
     report("aligning", 0.9)
     logger.info("Comparing the speech with the deck")
-    return {"pitch": pitch, "deck": slides, "alignment": alignment.run(ask_gemma, slides["slides"], pitch["segments"])}
+    return {"pitch": pitch, "deck": reviewed, "alignment": alignment.run(ask_gemma, reviewed["slides"], pitch["segments"])}
 
 
 def reserved(load: Callable[[], T]) -> T:
@@ -569,21 +698,25 @@ def stream(job: Callable[[Callable[[str, float], None]], dict]) -> StreamingResp
 
 
 @app.post("/analyze/stream")
-def analyze_stream(file: UploadFile | None = File(None)):
+def analyze_stream(file: UploadFile | None = File(None), time_limit_s: float | None = Form(None)):
     """Same as /analyze, but streams NDJSON progress events before the result."""
-    audio = reserved(lambda: load_upload(file))
-    return stream(lambda report: run_analysis(audio, report))
+    recording = reserved(lambda: load_upload(file))
+    return stream(lambda report: run_pitch_analysis(recording, report, positive(time_limit_s)))
 
 
 @app.post("/deck/stream")
 def deck_stream(file: UploadFile | None = File(None)):
     """Analyze a PDF deck, streaming NDJSON progress events before the result."""
-    page_count, pages = reserved(lambda: load_deck(file))
-    return stream(lambda report: run_deck_analysis(page_count, pages, report))
+    slides = reserved(lambda: load_deck(file))
+    return stream(lambda report: run_deck_analysis(slides, report))
 
 
 @app.post("/check/stream")
-def check_stream(recording: UploadFile | None = File(None), slides: UploadFile | None = File(None, alias="deck")):
+def check_stream(
+    recording: UploadFile | None = File(None),
+    slides: UploadFile | None = File(None, alias="deck"),
+    time_limit_s: float | None = Form(None),
+):
     """Analyze a recording and its deck together and compare them; fields are `recording` and `deck`."""
-    audio, (page_count, pages) = reserved(lambda: (load_upload(recording), load_deck(slides)))
-    return stream(lambda report: run_check(audio, page_count, pages, report))
+    loaded = reserved(lambda: (load_upload(recording), load_deck(slides)))
+    return stream(lambda report: run_check(*loaded, report, positive(time_limit_s)))

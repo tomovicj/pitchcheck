@@ -16,6 +16,8 @@ export type PauseAnalysis = {
   mean_pause_s: number;
   longest_pause_s: number;
   speaking_ratio: number;
+  // From the first sound to the last; the Time criterion is rated on it
+  spoken_s: number;
 };
 
 // What Gemma reports after listening to one segment
@@ -31,6 +33,13 @@ export type SegmentObservation = {
 
 // Rubric level from 0 to 4, with the measurement or the observation it rests on
 export type Criterion = { name: string; level: number; reason?: string };
+
+// SHA-256 of the salt followed by the uploaded file. The salt is random per analysis, so the hash
+// names the file without revealing anything about it until the salt is shown.
+export type FileFingerprint = { sha256: string; salt: string; bytes: number };
+
+// What produced an analysis: the model and a hash over the service's prompts, rubrics and limits
+export type AnalysisSetup = { model: string; dtype: string | null; slide_tokens: number; code_sha256: string };
 
 export type Segment = {
   start_s: number;
@@ -55,6 +64,8 @@ export type PitchSummary = {
 
 export type AudioAnalysis = {
   duration_s: number;
+  // The event's limit for the pitch, when one was given; the Time criterion is rated against it
+  time_limit_s?: number | null;
   model: string;
   prosody: ProsodyAnalysis | null;
   pauses: PauseAnalysis;
@@ -62,6 +73,8 @@ export type AudioAnalysis = {
   filler_words: { count: number; per_minute: number };
   segments: Segment[];
   summary: PitchSummary | null;
+  file: FileFingerprint;
+  setup: AnalysisSetup;
 };
 
 // Read from the PDF file; sizes are a share of the slide height
@@ -115,6 +128,8 @@ export type DeckAnalysis = {
   topic_slides: Record<string, number[]> | null;
   slides: Slide[];
   summary: DeckSummary | null;
+  file: FileFingerprint;
+  setup: AnalysisSetup;
 };
 
 // Whether the speech follows the deck; a report next to the two scores, not part of either

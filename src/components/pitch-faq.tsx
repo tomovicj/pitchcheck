@@ -2,9 +2,10 @@ import { Plus } from "lucide-react";
 
 const questions = [
   { question: "What can I upload?", answer: "For delivery feedback, upload a video such as MP4, MOV or WebM, or an audio recording such as MP3, WAV or M4A. For your deck, choose a PDF presentation up to 25 MB." },
-  { question: "What does PitchCheck actually score?", answer: "Gemma evaluates your pitch delivery from the audio itself, with signal measurements as supporting evidence. The score and feedback describe how you present; they do not rate your business idea or investment potential." },
-  { question: "Can I check my slide deck yet?", answer: "You can select, replace and preview your PDF now. Slide analysis, slide scores and checking the pitch against the deck are coming in a later step. Your deck stays in this browser and is not submitted for analysis yet." },
-  { question: "Where does my pitch get processed?", answer: "The current setup processes recordings through the project's local Gemma audio service. When you run the app and service on your machine, your recording is analyzed there. Model weights are downloaded from Hugging Face on the first startup." },
+  { question: "What does PitchCheck actually score?", answer: "Two things, separately. Gemma listens to your delivery in the audio itself and reads every slide of your deck. Each score comes from a fixed rubric with levels from 0 to 4, shown next to the measurement or the observation behind it. The scores describe how you present; they do not rate your business idea, its investment potential or your emotions." },
+  { question: "How does the deck check work?", answer: "Gemma reads each slide for its title, its point and the topics it covers. Text size, word count, fonts and contrast are measured from the PDF itself, so a slide with tiny text or faint text is named by its number. Export your deck as a PDF with selectable text to get those measurements." },
+  { question: "Do I have to read my slides out loud?", answer: "No. The combined check compares the key points of your slides with what you say. Summarising a slide or adding explanation is fine. It lists the deck points you never explained and the places where the talk and a slide disagree, and it is not part of either score." },
+  { question: "Where do my pitch and my deck get processed?", answer: "They go to the analysis service this app is connected to, and nowhere else. When you run the app and the service on your own machine, your recording and your deck are analyzed there. An event can also run the service on its own server; then your files are sent to it. Model weights are downloaded from Hugging Face on the first startup." },
 ];
 
 export function PitchFaq() {

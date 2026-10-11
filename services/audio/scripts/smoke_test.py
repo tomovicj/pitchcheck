@@ -6,6 +6,7 @@ gibberish, so this checks that the pipeline runs, not what Gemma says. From serv
     python -m scripts.smoke_test
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -122,6 +123,17 @@ def result_of(events: list[dict], stages: set[str]) -> dict:
     return events[-1]["data"]
 
 
+def check_file(data: dict, path: str):
+    """The fingerprint in a result is the salted SHA-256 of the file that was uploaded."""
+    with open(path, "rb") as f:
+        content = f.read()
+    file = data["file"]
+    assert file["bytes"] == len(content), f"fingerprint counts {file['bytes']} bytes of {len(content)}"
+    expected = hashlib.sha256(bytes.fromhex(file["salt"]) + content).hexdigest()
+    assert file["sha256"] == expected, "fingerprint does not match the uploaded file"
+    assert len(data["setup"]["code_sha256"]) == 64, f"no code hash in the setup: {data['setup']}"
+
+
 def check_pitch(data: dict):
     segments = data["segments"]
     assert len(segments) >= 2, f"expected the recording to be split, got {len(segments)} segment(s)"
@@ -160,14 +172,17 @@ def main():
             server.terminate()
             server.wait(timeout=30)
 
-    pitch_stages, deck_stages = {"measuring", "listening", "scoring"}, {"reading", "reviewing"}
-    pitch = result_of(pitch_events, pitch_stages)
-    check_pitch(pitch)
-    check_deck(result_of(deck_events, deck_stages))
-    both = result_of(check_events, pitch_stages | deck_stages | {"aligning"})
-    check_pitch(both["pitch"])
-    check_deck(both["deck"])
-    assert "alignment" in both, f"the combined check has no alignment entry: {sorted(both)}"
+        pitch_stages, deck_stages = {"measuring", "listening", "scoring"}, {"reading", "reviewing"}
+        pitch = result_of(pitch_events, pitch_stages)
+        check_pitch(pitch)
+        check_deck(result_of(deck_events, deck_stages))
+        both = result_of(check_events, pitch_stages | deck_stages | {"aligning"})
+        check_pitch(both["pitch"])
+        check_deck(both["deck"])
+        # While the files still exist
+        check_file(both["pitch"], recording)
+        check_file(both["deck"], slides)
+        assert "alignment" in both, f"the combined check has no alignment entry: {sorted(both)}"
     print(f"smoke test passed: pitch with {len(pitch['segments'])} segments, deck with 2 slides, combined check")
 
 

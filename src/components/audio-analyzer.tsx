@@ -11,6 +11,9 @@ type AudioAnalyzerProps = {
   onSelect: (file: File) => void;
   onRemove: () => void;
   onAnalyze: () => void;
+  // The event's limit for the pitch in minutes, as typed; empty when the event has none
+  timeLimit: string;
+  onTimeLimitChange: (minutes: string) => void;
   // An analysis is running, this one or another: files and buttons are locked
   busy: boolean;
   // Progress of this card's own analysis
@@ -18,7 +21,9 @@ type AudioAnalyzerProps = {
   error?: string;
 };
 
-export function AudioAnalyzer({ file, onSelect, onRemove, onAnalyze, busy, status, error }: AudioAnalyzerProps) {
+export function AudioAnalyzer({
+  file, onSelect, onRemove, onAnalyze, timeLimit, onTimeLimitChange, busy, status, error,
+}: AudioAnalyzerProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [invalid, setInvalid] = useState<string | null>(null);
 
@@ -79,6 +84,21 @@ export function AudioAnalyzer({ file, onSelect, onRemove, onAnalyze, busy, statu
       ) : (
         <audio controls src={previewUrl} className="media-preview" />
       ))}
+      <label className="checker-field" htmlFor="time-limit">
+        <span>Time limit at your event</span>
+        <input
+          id="time-limit"
+          type="number"
+          inputMode="decimal"
+          min="0.5"
+          step="0.5"
+          placeholder="3"
+          value={timeLimit}
+          onChange={(event) => onTimeLimitChange(event.target.value)}
+          disabled={busy}
+        />
+        <span>minutes · optional</span>
+      </label>
       <div className="checker-actions">
         <button type="button" onClick={onAnalyze} disabled={!file || busy} className="pill-button">
           {status ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}

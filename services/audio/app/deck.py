@@ -43,13 +43,7 @@ GEMMA_CRITERIA = ["Visual consistency", "Structure and flow"]
 # Deck rubric: one description per level, from 4 down to 0. Only the contrast limit is a standard
 # (WCAG 2.2, written for the web, so a lower bound for a projector). The rest are conventions.
 RUBRIC = {
-    "Topic coverage": [
-        "every expected topic is explained on some slide",
-        "one expected topic is missing",
-        "two or three expected topics are missing",
-        "more than three expected topics are missing",
-        "no expected topic is explained",
-    ],
+    rubric.TOPIC_CRITERION: rubric.TOPIC_LEVELS,
     "One message per slide": rubric.share_levels("lack a title or make several points"),
     "Text size": rubric.share_levels("have most of their text under 3.3% of the slide height"),
     "Text density": rubric.share_levels(f"have more than {DENSE_WORDS} words"),
@@ -239,13 +233,6 @@ def rate_share(name: str, flagged: list[int], of: int, finding: str) -> dict:
     return {"name": name, "reason": reason, "level": level}
 
 
-def rate_topics(missing: list[str]) -> dict:
-    """The topic coverage criterion, from the expected topics that Gemma found on no slide."""
-    level = 4 if not missing else 3 if len(missing) == 1 else 2 if len(missing) <= 3 else 0 if len(missing) == len(rubric.PITCH_TOPICS) else 1
-    reason = f"No slide explains: {', '.join(missing)}." if missing else "Every expected topic is explained on some slide."
-    return {"name": "Topic coverage", "reason": reason, "level": level}
-
-
 def rate_measured(slides: list[dict]) -> dict[str, dict]:
     """The criteria that follow from counts: what Gemma read on each slide, and what the file says."""
     rated = {}
@@ -394,7 +381,7 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int) -> tuple[dict | N
     reply = reply or {}
     topics = topic_slides(reply, {s["number"] for s in slides})
     if topics is not None:
-        rated["Topic coverage"] = rate_topics([topic for topic, numbers in topics.items() if not numbers])
+        rated[rubric.TOPIC_CRITERION] = rubric.rate_topics([topic for topic, numbers in topics.items() if not numbers])
     rated.update(rubric.gemma_levels(reply.get("criteria"), GEMMA_CRITERIA))
     criteria, score = rubric.total(RUBRIC, rated)
     feedback = [

@@ -234,7 +234,16 @@ video.media-preview { background: #191918; }
 .analysis-results { margin-top: 35px; --text-xs: .875rem; --text-xs--line-height: 1.6; --text-sm: 1rem; --text-sm--line-height: 1.65; }
 .results-intro { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
 .results-intro h3 { font-size: 25px; font-weight: 500; letter-spacing: -.5px; }
+.checker-field { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; font-size: var(--text-small); color: #73766c; }
+.checker-field input { width: 78px; min-height: 40px; padding: 0 12px; border: 1px solid #d9dccf; border-radius: 10px; background: white; color: #191918; font: inherit; }
+.checker-field input:focus-visible { outline: 2px solid #899344; outline-offset: 2px; }
+.checker-field input:disabled { opacity: .55; cursor: not-allowed; }
 .results-alignment { margin-bottom: 22px; }
+.results-verdict { margin-top: 22px; }
+.verdict-state { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: #eceee6; color: #63665d; }
+.verdict-state svg { width: 14px; height: 14px; }
+.verdict-state.verdict-match { background: #e3efcb; color: #4d5c1c; }
+.verdict-state.verdict-mismatch { background: #fbe3dc; color: #af3e30; }
 .results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
 .results-grid.is-single { grid-template-columns: 1fr; }
 .combined-check-progress, .combined-check .checker-error { width: min(560px, 100%); text-align: left; }

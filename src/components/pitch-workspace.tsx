@@ -10,6 +10,7 @@ import { CombinedPitchCheck } from "@/components/combined-pitch-check";
 import { DeckResults } from "@/components/deck-results";
 import { DeckUploader } from "@/components/deck-uploader";
 import { PitchResults } from "@/components/pitch-results";
+import { VerdictCard } from "@/components/verdict-card";
 import type { Alignment, AudioAnalysis, DeckAnalysis, PitchCheck } from "@/lib/analysis";
 import { runAnalysis } from "@/lib/run-analysis";
 
@@ -22,6 +23,8 @@ const OLDER_SERVICE = "The analysis service is an older version than this page. 
 export function PitchWorkspace() {
   const [recording, setRecording] = useState<File | null>(null);
   const [deck, setDeck] = useState<File | null>(null);
+  // Minutes, as typed; with it the length of the recording is rated against the event's limit
+  const [timeLimit, setTimeLimit] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [errors, setErrors] = useState<Partial<Record<JobKind, string>>>({});
   const [pitch, setPitch] = useState<AudioAnalysis | null>(null);
@@ -41,9 +44,15 @@ export function PitchWorkspace() {
     }
   }
 
+  function withTimeLimit(body: FormData) {
+    const minutes = Number(timeLimit);
+    if (minutes > 0) body.append("time_limit_s", String(minutes * 60));
+    return body;
+  }
+
   function analyzePitch() {
     if (!recording) return;
-    const body = new FormData();
+    const body = withTimeLimit(new FormData());
     body.append("file", recording);
     run<AudioAnalysis>("pitch", "/api/analyze", body, (result) => {
       if (!result.filler_words) throw new Error(OLDER_SERVICE);
@@ -64,7 +73,7 @@ export function PitchWorkspace() {
 
   function checkBoth() {
     if (!recording || !deck) return;
-    const body = new FormData();
+    const body = withTimeLimit(new FormData());
     body.append("recording", recording);
     body.append("deck", deck);
     run<PitchCheck>("check", "/api/check", body, (result) => {
@@ -97,6 +106,8 @@ export function PitchWorkspace() {
             setErrors({});
           }}
           onAnalyze={analyzePitch}
+          timeLimit={timeLimit}
+          onTimeLimitChange={setTimeLimit}
           busy={busy}
           status={statusOf("pitch")}
           error={errors.pitch}
@@ -143,6 +154,12 @@ export function PitchWorkspace() {
             {pitch && <PitchResults result={pitch} />}
             {slides && <DeckResults result={slides} />}
           </div>
+          {/* Only after a combined check: the verdict covers both files of one run. An older service sends no fingerprints. */}
+          {alignment !== undefined && pitch?.file && slides?.file && (
+            <div className="results-verdict">
+              <VerdictCard check={{ pitch, deck: slides, alignment }} />
+            </div>
+          )}
         </div>
       )}
     </>
