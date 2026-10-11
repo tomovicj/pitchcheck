@@ -8,6 +8,8 @@ praat-parselmouth
 transformers>=5.19
 accelerate
 torch
+# AnyToAnyPipeline requires librosa even when audio is supplied as a numpy array
+librosa>=0.11,<0.12
 # The Gemma 4 processor imports its image and video parts even for audio-only input
 torchvision
 pillow

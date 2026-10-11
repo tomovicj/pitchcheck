@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { FileAudio, FileVideo, Loader2, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowUpRight, AudioLines, Info, Loader2 } from "lucide-react";
+import { UploadDropzone } from "@/components/upload-dropzone";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -15,13 +14,6 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { AnalysisEvent, AnalysisStage, AudioAnalysis } from "@/lib/analysis";
-
-// Rough guide for spoken presentations, not a hard rule
-function variationLabel(semitones: number) {
-  if (semitones < 2) return "Monotone";
-  if (semitones > 4) return "Expressive";
-  return "Moderate";
-}
 
 const STAGE_LABELS: Record<AnalysisStage | "uploading", string> = {
   uploading: "Uploading and extracting audio",
@@ -36,15 +28,21 @@ async function* readEvents(body: ReadableStream<Uint8Array>) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.trim()) yield JSON.parse(line) as AnalysisEvent;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim()) yield JSON.parse(line) as AnalysisEvent;
+      }
     }
+    buffer += decoder.decode();
+    if (buffer.trim()) yield JSON.parse(buffer) as AnalysisEvent;
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -67,21 +65,42 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 export function AudioAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AudioAnalysis | null>(null);
 
-  function selectFile(next: File | undefined) {
-    if (!next) return;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function selectFile(next: File) {
+    if (status) return;
+    const mediaExtension = /\.(mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|mkv|avi)$/i;
+    if (!(next.type.startsWith("audio/") || next.type.startsWith("video/") || (!next.type && mediaExtension.test(next.name)))) {
+      setError("Please choose an audio or video recording.");
+      return;
+    }
+    if (next.size === 0) {
+      setError("This recording is empty. Please choose a file with content.");
+      return;
+    }
     setFile(next);
     setPreviewUrl(URL.createObjectURL(next));
     setResult(null);
     setError(null);
   }
 
-  const isVideo = file?.type.startsWith("video/") ?? false;
+  function removeFile() {
+    if (status) return;
+    setFile(null);
+    setPreviewUrl(null);
+    setResult(null);
+    setError(null);
+  }
+
+  const isVideo = !!file && (file.type.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi)$/i.test(file.name));
 
   async function analyze() {
     if (!file) return;
@@ -112,91 +131,54 @@ export function AudioAnalyzer() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Upload a recording</CardTitle>
-          <CardDescription>
-            Audio (MP3, WAV, M4A…) or video (MP4, MOV, WebM…). For video, only the audio track is
-            analyzed. Everything runs locally.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <label
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              selectFile(e.dataTransfer.files[0]);
-            }}
-            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
-              dragging ? "border-primary bg-muted" : "border-border hover:bg-muted/50"
-            }`}
-          >
-            {file ? (
-              <>
-                {isVideo ? (
-                  <FileVideo className="text-muted-foreground size-8" />
-                ) : (
-                  <FileAudio className="text-muted-foreground size-8" />
-                )}
-                <span className="font-medium">{file.name}</span>
-                <span className="text-muted-foreground text-xs">
-                  {(file.size / 1024 / 1024).toFixed(1)} MB · click or drop to replace
-                </span>
-              </>
-            ) : (
-              <>
-                <Upload className="text-muted-foreground size-8" />
-                <span className="font-medium">Drop an audio or video file here or click to browse</span>
-              </>
-            )}
-            <input
-              type="file"
-              accept="audio/*,video/*"
-              className="sr-only"
-              onChange={(e) => selectFile(e.target.files?.[0])}
-            />
-          </label>
-
-          {previewUrl &&
-            (isVideo ? (
-              <video controls src={previewUrl} className="max-h-96 w-full rounded-lg bg-black" />
-            ) : (
-              <audio controls src={previewUrl} className="w-full" />
-            ))}
-
-          <Button onClick={analyze} disabled={!file || !!status} className="self-start">
-            {status && <Loader2 className="animate-spin" />}
-            {status ? "Analyzing…" : "Analyze"}
-          </Button>
-
-          {status && (
-            <div className="flex flex-col gap-2">
-              <div className="flex justify-between text-sm">
-                <span>{STAGE_LABELS[status.stage]}…</span>
-                <span className="text-muted-foreground tabular-nums">
-                  {Math.round(status.progress * 100)}%
-                </span>
-              </div>
-              <Progress value={status.progress * 100} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertTitle>Analysis failed</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+    <div className="recording-column min-w-0">
+      <article id="pitch-video" className="checker-card recording-checker">
+        <div className="checker-heading">
+          <span className="checker-icon"><AudioLines aria-hidden="true" /></span>
+          <span className="status-pill">READY TO CHECK</span>
+        </div>
+        <p className="checker-kicker">01 / THE DELIVERY</p>
+        <h3>Pitch delivery checker.</h3>
+        <p className="checker-description">Find your pace, hear your tone and make your next take more confident.</p>
+        <UploadDropzone
+          id="recording-file"
+          accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.mp4,.mov,.webm,.mkv,.avi"
+          title="Drop your pitch recording here"
+          hint="Video or audio · MP4, MOV, MP3, WAV & more"
+          file={file}
+          onSelect={selectFile}
+          onRemove={removeFile}
+          disabled={!!status}
+          kind="recording"
+        />
+        {previewUrl && (isVideo ? (
+          <video controls src={previewUrl} className="media-preview" />
+        ) : (
+          <audio controls src={previewUrl} className="media-preview" />
+        ))}
+        <div className="checker-actions">
+          <button type="button" onClick={analyze} disabled={!file || !!status} className="pill-button">
+            {status ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+            {status ? "Analyzing your pitch…" : "Analyze my pitch"}
+            {!status && <ArrowUpRight aria-hidden="true" />}
+          </button>
+          <span>Feedback powered by Gemma</span>
+        </div>
+        <p className="checker-note"><Info aria-hidden="true" /><span>For video, the audio track is analyzed. Delivery matters.</span></p>
+        {status && (
+          <div className="analysis-status" role="status" aria-live="polite">
+            <div className="analysis-status-label"><span>{STAGE_LABELS[status.stage]}…</span><span>{Math.round(status.progress * 100)}%</span></div>
+            <Progress value={status.progress * 100} />
+          </div>
+        )}
+        {error && <p className="checker-error" role="alert">{error}</p>}
+      </article>
+      {result && (
+        <div className="analysis-results">
+          <div className="results-intro"><AudioLines aria-hidden="true" className="size-5" /><h3>Your pitch, a little clearer.</h3></div>
+          <Results result={result} />
+        </div>
       )}
-
-      {result && <Results result={result} />}
     </div>
   );
 }
@@ -205,8 +187,8 @@ function Results({ result }: { result: AudioAnalysis }) {
   const { prosody, pauses, segments, summary } = result;
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <Card className="md:col-span-2">
+    <div className="grid min-w-0 gap-5">
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Pitch score</CardTitle>
           <CardDescription>
@@ -226,8 +208,8 @@ function Results({ result }: { result: AudioAnalysis }) {
                 <div className="flex flex-col gap-3">
                   {summary.criteria.map((c) => (
                     <div key={c.name} className="flex flex-col gap-1">
-                      <div className="flex items-center gap-3">
-                        <span className="w-40 shrink-0 text-sm">{c.name}</span>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <span className="w-full text-sm sm:w-32 sm:shrink-0">{c.name}</span>
                         <Progress value={c.score} className="flex-1" />
                         <span className="text-muted-foreground w-10 text-right text-sm tabular-nums">
                           {Math.round(c.score)}
@@ -306,7 +288,7 @@ function Results({ result }: { result: AudioAnalysis }) {
               <Stat
                 label="Pitch variation"
                 value={`${prosody.pitch_std_semitones} st`}
-                hint={variationLabel(prosody.pitch_std_semitones)}
+                hint="Measured pitch variation"
               />
               <Stat
                 label="Pitch range"
@@ -326,7 +308,7 @@ function Results({ result }: { result: AudioAnalysis }) {
         </CardContent>
       </Card>
 
-      <Card className="md:col-span-2">
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle>Timeline</CardTitle>
           <CardDescription>What Gemma heard in each segment</CardDescription>

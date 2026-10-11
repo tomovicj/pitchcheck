@@ -18,6 +18,7 @@ services:
       - "8000:8000"
     environment:
       GEMMA_MODEL: google/gemma-4-E2B-it # audio input: gemma-4-E2B-it | gemma-4-E4B-it | gemma-4-12B-it
+      GEMMA_DEVICE_MAP: ${GEMMA_DEVICE_MAP:-auto}
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - models:/models

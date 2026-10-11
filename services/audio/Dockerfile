@@ -9,6 +9,8 @@ RUN python -m venv /venv
 ENV PATH=/venv/bin:$PATH
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Fail the build if Transformers cannot use its required audio backend.
+RUN python -c "import librosa; from transformers.utils import is_librosa_available; assert is_librosa_available()"
 
 FROM python:3.12-slim
 

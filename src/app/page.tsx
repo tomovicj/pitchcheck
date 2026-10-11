@@ -1,19 +1,32 @@
 import { AudioAnalyzer } from "@/components/audio-analyzer";
-import { ModeToggle } from "@/components/mode-toggle";
+import { CombinedPitchCheck } from "@/components/combined-pitch-check";
+import { DeckUploader } from "@/components/deck-uploader";
+import { HowItWorks } from "@/components/how-it-works";
+import { PitchFaq } from "@/components/pitch-faq";
+import { PitchHero } from "@/components/pitch-hero";
+import { SiteFooter } from "@/components/site-footer";
+import { SiteHeader } from "@/components/site-header";
+import { ShieldCheck } from "lucide-react";
 
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 py-12">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-3xl font-semibold tracking-tight">pitchcheck</h1>
-          <ModeToggle />
-        </div>
-        <p className="text-muted-foreground">
-          Upload a recording of your pitch to get feedback on cadence, tonality and emotion.
-        </p>
-      </div>
-      <AudioAnalyzer />
-    </main>
+    <div id="top">
+      <SiteHeader />
+      <main>
+        <PitchHero />
+        <section className="workspace-section site-container" id="workspace" aria-labelledby="workspace-title">
+          <div className="section-intro">
+            <div><p className="eyebrow">Your practice space</p><h2 id="workspace-title" className="section-title">Good pitches start here.</h2></div>
+            <p className="section-description">Bring the recording. Bring the slides.<br />Take the next step toward a clearer pitch.</p>
+          </div>
+          <div className="checker-grid"><AudioAnalyzer /><DeckUploader /></div>
+          <CombinedPitchCheck />
+          <p className="workspace-note"><ShieldCheck aria-hidden="true" /> Scores rate your delivery and slides, never your business idea.</p>
+        </section>
+        <HowItWorks />
+        <PitchFaq />
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
