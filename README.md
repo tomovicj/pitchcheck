@@ -38,7 +38,7 @@ Read from the code on `main`. "Implemented" means it runs end to end with the re
 | Time criterion: the length of the recording against the event's time limit, when the team enters one | Implemented |
 | PDF deck upload; pages rendered to images; text size, words per slide, fonts, contrast, where the largest text sits and the size of the title measured from the file | Implemented; needs a PDF with a text layer for the measurements. PPTX is not accepted |
 | Gemma 4 E2B reads each slide: title, main point, one point or several, key points, legibility | Implemented |
-| Checklist for the deck: the same labels, one for each slide, from the title, the point and the key points Gemma read | Third version. Labelled line by line, the slide about the problem came out as "solution" and then as "traction" with the real model; whole slides have not run with it yet |
+| Checklist for the deck: the same labels, one for each slide, from the title, the point and the key points Gemma read | Fourth version. Labelled line by line, the slide about the problem came out as "solution" and then as "traction" with the real model. With one label for a slide it got six of the eight slides of the test deck right and wrote "none" for the title slide and for the slide about the problem; the wording written after that has not run with it yet |
 | Slide score from eleven rubric criteria in two groups, content (title slide, topic coverage, numbers, plain language) and design (one message per slide, words per slide, text size, contrast, key text at the top, visual consistency, deck length), on levels 0 to 4, every level given in code | Written and checked without the model, on the test deck and the observations saved from a real run; the rubric (`RUBRIC` in `services/audio/app/deck.py`) has not been tried on real decks |
 | Results in two steps: an overview with both scores and up to five measurements, and "SHOW MORE" for the full reports in a modal: the score of each group, the feedback, the criteria with the standard behind each, the checklist with what was found for each topic, the insights, the measurements, the timeline and the slide notes | Implemented |
 | Check that the spoken pitch follows the deck: deck points the talk never explains, statements where the two disagree, recommendations | Implemented (`services/audio/app/alignment.py`); a report next to the two scores, not part of either. Reading the slides word for word is not checked |
@@ -88,7 +88,15 @@ What changed after it: the labelling prompt carries a worked example from anothe
 
 What changed after it: a slide is labelled as a whole, from its title, its point in a sentence and its lines, with one label for a slide. A bullet such as "Organizers review 50 decks in two days" says too little alone; with the whole slide in view Gemma put the main topics of this deck on the right slides in the first version of the rubric. The statements of the speaker are still labelled one by one. On a slide a number is a figure, so that "two developers" on a team slide is not one. And feedback is tied to a finding by the finding's name, which can be checked, where a number could not.
 
-**What is not tested.** The prompts as they are now have not run with the real model. Whether labelling whole slides cures the wrong labels on the deck is not known, and nothing has been tried on a real pitch or a real deck.
+**The fourth run**, again the same files, in 5 minutes 17 seconds.
+
+- Pitch: the same labels as in the second and the third run and the same score, 60 (content 40, delivery 90).
+- Deck: with one label for a slide, slides 3 to 8 came out right: solution, market, business model, unique insight, team, ask. Slides 1 and 2, the title slide and the slide about how organizers work today, came out as "none". So the problem counted as missing again, the title slide rated 2 of 4 because the first slide about the product was the third, and the deck scored 50 (content 30, design 65).
+- The result could not tell why. A slide shows as "none" when Gemma wrote none, when it wrote a label that code cannot read, and when its reply left the slide out. A run of the deck alone, with the reply kept, showed that Gemma had written "none" for both.
+
+What changed after it: each summary keeps Gemma's replies to the labelling prompt as it wrote them (`label_replies`). And the line for "none" and the advice under the labels are worded for a deck apart from a talk. The two slides have a title that names no topic ("PitchCheck", "Organizers review 50 decks in two days"), and "none" took any slide "that fits no line above". For a deck, "none" is now a slide that only closes the deck, and the advice says to go by the whole slide and not by its title, that a first slide with the name and a line on what the company makes is "what it does", and that a slide about how things are today is the problem even when it does not use the word. The price is that a slide which fits no topic, an agenda or a roadmap, is pushed towards the closest one. The prompt for a talk did not change: built from the statements of this run it is the same, character for character.
+
+**What is not tested.** The wording for a deck written after the fourth run has not run with the real model, so whether it cures the two wrong labels is not known. Nothing has been tried on a real pitch or a real deck.
 
 #### Where the standards come from
 
@@ -294,6 +302,8 @@ AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
 ```
 
 The last cell of the notebook keeps running and follows the branch. About every 30 seconds it fetches it, and when a push changed something under `services/audio` it installs a changed `requirements.txt` and restarts the service on the new code; it does not fetch while an analysis is running. The tunnel is left alone, so the URL stays the same until the Kaggle session ends, and `setup.code_sha256` in `GET <url>/health` tells which code is answering. While Gemma loads again the service does not answer. The loop was run on a laptop against a local git repository and a stand-in for the service, not yet on Kaggle.
+
+A long request through the quick tunnel does not always survive. On 11 October 2026 three of five combined checks lost their connection two to three minutes in, twice through the web app and once straight against the tunnel, while the service went on and finished the analysis; `/health` answered throughout. The result of such a check is lost, because the service keeps nothing. Why the connection drops is not known.
 
 The page and the service have to be the same version: the page shows an error instead of results when the service behind it is older. With the Kaggle service the recording and the deck leave the laptop, through the tunnel, to Kaggle; that setup is for demonstrations on a machine that cannot run the model.
 
