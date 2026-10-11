@@ -1,9 +1,7 @@
-import { AudioAnalyzer } from "@/components/audio-analyzer";
-import { CombinedPitchCheck } from "@/components/combined-pitch-check";
-import { DeckUploader } from "@/components/deck-uploader";
 import { HowItWorks } from "@/components/how-it-works";
 import { PitchFaq } from "@/components/pitch-faq";
 import { PitchHero } from "@/components/pitch-hero";
+import { PitchWorkspace } from "@/components/pitch-workspace";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ShieldCheck } from "lucide-react";
@@ -20,8 +18,7 @@ export default function Home() {
             <p className="section-description">Bring the recording. Bring the slides.<br />Take the next step toward a clearer pitch.</p>
           </div>
           <p className="workspace-privacy"><ShieldCheck aria-hidden="true" /><span>Private uploads. Organizer-hosted.</span></p>
-          <div className="checker-grid"><AudioAnalyzer /><DeckUploader /></div>
-          <CombinedPitchCheck />
+          <PitchWorkspace />
           <p className="workspace-note"><ShieldCheck aria-hidden="true" /> Scores rate your delivery and slides, never your business idea.</p>
         </section>
         <HowItWorks />

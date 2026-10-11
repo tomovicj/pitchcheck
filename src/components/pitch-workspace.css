@@ -63,7 +63,7 @@
 .upload-remove { position: absolute; z-index: 2; top: 12px; right: 12px; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid #e3e7dc; border-radius: 50%; background: #fff; color: #7a8271; }
 .upload-remove svg { width: 14px; height: 14px; }
 .upload-remove:hover { background: #f1f3e9; }
-.checker-actions { display: flex; margin-top: 20px; }
+.checker-actions { display: flex; gap: 10px; margin-top: 20px; }
 .checker-actions .pill-button { width: 100%; min-height: 48px; border-radius: 14px; font-size: 15px; }
 .checker-actions .pill-secondary { border-color: #c5d6e1; color: #486e85; background: #e6eff5; }
 .checker-actions .pill-secondary:hover { background: #dce9f2; }

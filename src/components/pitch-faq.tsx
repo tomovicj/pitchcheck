@@ -2,9 +2,10 @@ import { Plus } from "lucide-react";
 
 const questions = [
   { question: "What can I upload?", answer: "For delivery feedback, upload a video such as MP4, MOV or WebM, or an audio recording such as MP3, WAV or M4A. For your deck, choose a PDF presentation up to 25 MB." },
-  { question: "What does PitchCheck actually score?", answer: "Gemma evaluates your pitch delivery from the audio itself, with signal measurements as supporting evidence. The score and feedback describe how you present; they do not rate your business idea or investment potential." },
-  { question: "Can I check my slide deck yet?", answer: "You can select, replace and preview your PDF now. Slide analysis, slide scores and checking the pitch against the deck are coming in a later step. Your deck stays in this browser and is not submitted for analysis yet." },
-  { question: "Is my pitch deck private?", answer: "Yes. Your pitch and deck never leave the competition organizer's server. Gemma runs there too, so your files are never sent to external AI providers. PDF preview currently stays in your browser." },
+  { question: "What does PitchCheck actually score?", answer: "Two things, separately. Gemma listens to your delivery in the audio itself and reads every slide of your deck. Each score comes from a fixed rubric with levels from 0 to 4, shown next to the measurement or the observation behind it. The scores describe how you present; they do not rate your business idea, its investment potential or your emotions." },
+  { question: "How does the deck check work?", answer: "Gemma reads each slide for its title, its point and the topics it covers. Text size, word count, fonts and contrast are measured from the PDF itself, so a slide with tiny text or faint text is named by its number. Export your deck as a PDF with selectable text to get those measurements." },
+  { question: "Do I have to read my slides out loud?", answer: "No. The combined check compares the key points of your slides with what you say. Summarising a slide or adding explanation is fine. It lists the deck points you never explained and the places where the talk and a slide disagree, and it is not part of either score." },
+  { question: "Are my pitch and my deck private?", answer: "Yes. They go to the analysis service this app is connected to, where Gemma runs, and nowhere else; they are never sent to an outside AI provider, and the service keeps nothing after the analysis. At an event the service runs on the organizer's server. When you run the app and the service on your own machine, your files stay there. Model weights are downloaded from Hugging Face on the first startup." },
 ];
 
 export function PitchFaq() {

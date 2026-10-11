@@ -42,9 +42,9 @@ function PracticePreview() {
 }
 
 const steps = [
-  { number: "01", label: "Upload", variant: "upload", Preview: UploadPreview, title: "Bring your pitch.", description: "Upload your recording. Add a PDF deck to preview your slides." },
-  { number: "02", label: "Discover", variant: "listen", Preview: ListeningPreview, title: "Find your focus.", description: "Get a delivery score and feedback on the moments that matter." },
-  { number: "03", label: "Refine", variant: "practice", Preview: PracticePreview, title: "Come back stronger.", description: "Put your feedback to work. Record a new take when you're ready." },
+  { number: "01", label: "Upload", variant: "upload", Preview: UploadPreview, title: "Bring your pitch.", description: "Upload your recording and the PDF of your deck. Check either one, or both together." },
+  { number: "02", label: "Discover", variant: "listen", Preview: ListeningPreview, title: "Find your focus.", description: "Get a delivery score, a slide score and feedback tied to moments in your pitch and to slide numbers." },
+  { number: "03", label: "Refine", variant: "practice", Preview: PracticePreview, title: "Come back stronger.", description: "See which slides you never explained. Fix them, record a new take and check again." },
 ];
 
 export function HowItWorks() {

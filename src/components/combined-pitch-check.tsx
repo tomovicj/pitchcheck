@@ -1,9 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpRight, AudioLines, PanelsTopLeft } from "lucide-react";
+import { ArrowUpRight, AudioLines, Loader2, PanelsTopLeft } from "lucide-react";
 
-export function CombinedPitchCheck() {
+import { AnalysisProgress, type AnalysisStatus } from "@/components/analysis-progress";
+
+type CombinedPitchCheckProps = {
+  // What is still needed before the check can run, e.g. "a PDF deck"; null when both files are there
+  missing: string | null;
+  onRun: () => void;
+  // An analysis is running, this one or another
+  busy: boolean;
+  // Progress of the combined check itself
+  status: AnalysisStatus | null;
+  error?: string;
+};
+
+export function CombinedPitchCheck({ missing, onRun, busy, status, error }: CombinedPitchCheckProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -11,33 +24,42 @@ export function CombinedPitchCheck() {
       <button
         type="button"
         className="combined-check-button"
-        aria-expanded={expanded}
-        aria-controls="combined-check-details"
+        aria-expanded={missing ? expanded : undefined}
+        aria-controls={missing ? "combined-check-details" : undefined}
         aria-describedby="combined-check-description combined-check-availability"
-        onClick={() => setExpanded((value) => !value)}
+        disabled={busy}
+        onClick={() => (missing ? setExpanded((value) => !value) : onRun())}
       >
         <span className="combined-check-icons" aria-hidden="true">
           <span><AudioLines /></span>
           <span><PanelsTopLeft /></span>
         </span>
-        <span>Check pitch + deck</span>
-        <span className="combined-check-arrow"><ArrowUpRight aria-hidden="true" /></span>
+        <span>{status ? "Checking pitch + deck…" : "Check pitch + deck"}</span>
+        <span className="combined-check-arrow">
+          {status ? <Loader2 className="animate-spin" aria-hidden="true" /> : <ArrowUpRight aria-hidden="true" />}
+        </span>
       </button>
       <p id="combined-check-description" className="combined-check-description">
         Two scores. See how your pitch follows your slides.
       </p>
       <p id="combined-check-availability" className="combined-check-availability">
-        Coming soon <span aria-hidden="true">·</span> Powered by Gemma
+        {missing ? `Add ${missing} to run it` : "Ready"} <span aria-hidden="true">·</span> Powered by Gemma
       </p>
-      <div id="combined-check-details" className="combined-check-details" hidden={!expanded}>
+      {status && (
+        <div className="combined-check-progress">
+          <AnalysisProgress status={status} />
+        </div>
+      )}
+      {error && <p className="checker-error" role="alert">{error}</p>}
+      <div id="combined-check-details" className="combined-check-details" hidden={!missing || !expanded}>
         <p>
-          Gemma will score your delivery and your deck separately, then compare
-          what you say with what your slides show. Get feedback on missed topics
-          and contradictions, with room to add your own explanation.
+          Gemma scores your delivery and your deck separately, then compares
+          what you say with what your slides show. You get the deck points you
+          never explained and the places where the talk and the slides disagree.
         </p>
         <p className="combined-check-details-note">
-          The combined check is coming soon. You can already analyze your recording
-          and preview your PDF above.
+          Add {missing} above to run the combined check. You can also check the
+          recording or the deck on its own.
         </p>
       </div>
     </div>

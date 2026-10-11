@@ -19,6 +19,9 @@ services:
     environment:
       GEMMA_MODEL: google/gemma-4-E2B-it # audio input: gemma-4-E2B-it | gemma-4-E4B-it | gemma-4-12B-it
       GEMMA_DEVICE_MAP: ${GEMMA_DEVICE_MAP:-} # empty: auto on GPU, cpu otherwise
+      SLIDE_TOKENS: ${SLIDE_TOKENS:-560} # visual tokens per slide: 70 | 140 | 280 | 560 | 1120
+      MAX_SLIDES: ${MAX_SLIDES:-20} # pages of a deck that are analyzed
+      PITCH_TOPICS: ${PITCH_TOPICS:-} # the event's own topics as JSON, name to meaning; empty for the default six
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - models:/models
