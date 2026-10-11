@@ -491,8 +491,45 @@ def describe_slide(slide: dict) -> str:
     return " ".join(parts)
 
 
-# How the labelling prompt names a deck; see rubric.LABEL_PROMPT
-SLIDES = {"kind": "startup pitch deck", "heard": "What each slide says, in order, as you read it"}
+def slide_text(title: str, point: str, lines: list[str]) -> str:
+    """A slide as the labelling prompt shows it: its title, its point in a sentence, and its lines."""
+    return f"{title or '(no title)'}. Point: {point or '(none read)'} Lines: {' | '.join(lines) or '(none read)'}"
+
+
+def slide_unit(slide: dict) -> rubric.Unit:
+    """A slide that Gemma read, as one unit to label; its lines are what counts as said when it gets a label."""
+    observations = slide["observations"]
+    title = str(observations.get("title") or "").strip()
+    points = [p for p in rubric.strings(observations.get("key_points"), alignment.SLIDE_POINTS) if p.lower() != title.lower()]
+    return rubric.Unit(
+        slide_text(title, str(observations.get("message") or "").strip(), points),
+        {"slide": slide["number"]},
+        slide_statements(slide),
+    )
+
+
+# How the labelling prompt names a deck; see rubric.LABEL_PROMPT. A slide is labelled as a whole.
+SLIDES = {
+    "kind": "startup pitch deck",
+    "heard": "What each slide shows, in order, as you read it: its title, its point, and its lines",
+    "unit": "slide",
+    "example": rubric.example([
+        (slide_text("Velo", "Velo unlocks city bikes from a phone.", ["Unlock any city bike in ten seconds"]), rubric.OPENING),
+        (slide_text("Renting a bike takes twenty minutes", "Renting a bike is slow today.",
+                    ["Commuters queue at a kiosk", "Kiosks close at eight in the evening"]), "problem"),
+        (slide_text("Scan and ride", "The app does what the kiosk did.", ["Scan the code on the bike", "Ride away"]), "solution"),
+        (slide_text("Who rides", "Commuters are the customers.",
+                    ["40,000 daily commuters in our city", "Each spends 30 euros a month on transport"]), "market"),
+        (slide_text("1,200 riders since May", "People already use it.", ["Launched in May", "30% ride every week"]), "traction"),
+        (slide_text("Why a phone beats a kiosk", "A phone goes where the riders are.",
+                    ["A kiosk cannot move", "A phone is already in every pocket"]), "unique insight"),
+        (slide_text("One euro a ride", "Riders pay for each ride.", ["1 euro per ride", "The city pays nothing"]), "business model"),
+        (slide_text("The team", "The founders ran the city's bike scheme.",
+                    ["Two engineers", "Five years at the city bike scheme"]), "team"),
+        (slide_text("Add 500 bikes", "The team is raising money.", ["Raising 100,000 euros", "500 more bikes by spring"]), "ask"),
+        (slide_text("Thank you", "A closing slide.", ["Questions?"]), "none"),
+    ]),
+}
 # Findings the feedback is written about, the weakest criteria first
 MAX_FEEDBACK = 6
 
@@ -511,8 +548,8 @@ Problems measured in the file:
 
 Reply with only a JSON object in this shape:
 {{"insights": ["what the rating found, 3 to 5 short statements, the weak points and the strong ones"],
- "feedback": [{{"finding": 1, "slide": 1, "text": "one concrete thing to change"}}]}}
-Write one feedback item for each numbered finding, and for nothing else. In each, name the slide and the number that was measured, or the topic that is missing, and say what the team should do about it. Do not mention levels or the names of criteria. Set finding to the number of the finding, and slide to the number of the slide the item refers to, or null if it applies to the whole deck."""
+ "feedback": [{{"about": "the name of the finding, copied from the list above", "slide": 1, "text": "one concrete thing to change"}}]}}
+Write one feedback item for each finding in the list, and for nothing else. In the text, name the slide and the number that was measured, or the topic that is missing, and say what the team should do about it; do not mention levels. Set slide to the number of the slide the item refers to, or null if it applies to the whole deck."""
 
 
 def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, str]) -> dict:
@@ -524,7 +561,11 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
     """
     rated = rate_design(slides, page_count)
     checklist, labelled = rubric.run_checklist(
-        ask, [(f"Slide {s['number']}:", {"slide": s["number"]}, slide_statements(s)) for s in slides], **SLIDES
+        ask,
+        [slide_unit(s) for s in slides if s["observations"]],
+        # A slide gives its numbers as figures; "two developers" on a team slide is not one
+        number=rubric.FIGURE,
+        **SLIDES,
     )
     # Content is rated as a whole or not at all: plain language alone would pass for a deck that says nothing
     if checklist:
@@ -566,7 +607,7 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
     return {
         **summary,
         "insights": rubric.strings(reply.get("insights"), 5),
-        "feedback": rubric.feedback(reply, weak, "slide", (int,)),
+        "feedback": rubric.feedback(reply, weak, "slide", (int,), MAX_FEEDBACK),
     }
 
 

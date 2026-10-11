@@ -466,7 +466,12 @@ def observe_segment(clip: np.ndarray, start: float, end: float, measurements: di
 
 
 # How the labelling prompt names a spoken pitch; see rubric.LABEL_PROMPT
-SPEECH = {"kind": "spoken startup pitch", "heard": "What the speaker said, in order, as you heard it"}
+SPEECH = {
+    "kind": "spoken startup pitch",
+    "heard": "What the speaker said, in order, as you heard it",
+    "unit": "statement",
+    "example": rubric.STATEMENT_EXAMPLE,
+}
 
 # Findings the feedback is written about, the weakest criteria first
 MAX_FEEDBACK = 5
@@ -486,8 +491,8 @@ Rated at the top level, with nothing to change: {strengths}.
 
 Reply with only a JSON object in this shape:
 {{"insights": ["what the rating found, 3 to 5 short statements, the weak points and the strong ones"],
- "feedback": [{{"finding": 1, "at_s": 0, "text": "one concrete thing to change"}}]}}
-Write one feedback item for each numbered finding, and for nothing else. In each, name the number that was measured or the topic that is missing, and say what the team should do about it. Do not mention levels or the names of criteria. Set finding to the number of the finding, and at_s to the second in the recording the item refers to, or null if it applies to the whole pitch.
+ "feedback": [{{"about": "the name of the finding, copied from the list above", "at_s": 0, "text": "one concrete thing to change"}}]}}
+Write one feedback item for each finding in the list, and for nothing else. In the text, name the number that was measured or the topic that is missing, and say what the team should do about it; do not mention levels. Set at_s to the second in the recording the item refers to, or null if it applies to the whole pitch.
 A voice whose pitch moves and whose loudness stays easy to hear helps a listener: never advise a flatter or more even pitch."""
 
 
@@ -630,7 +635,10 @@ def score_pitch(
         rated[FILLER_CRITERION] = rate_fillers(fillers)
     checklist, labelled = rubric.run_checklist(
         ask_gemma,
-        [(f"From {span(s)}:", {"at_s": s["start_s"]}, statements(s)) for s in segments],
+        [
+            rubric.Unit(statement, {"at_s": s["start_s"]}, [statement], f"From {span(s)}:")
+            for s in segments for statement in statements(s)
+        ],
         **SPEECH,
     )
     # Content is rated as a whole or not at all: plain language alone would pass for a pitch that says nothing
@@ -666,7 +674,7 @@ def score_pitch(
         # Every statement with the label Gemma gave it, for checking the labels; its replies when they could not be used
         "labelled": labelled,
         "insights": rubric.strings(reply.get("insights"), 5),
-        "feedback": rubric.feedback(reply, weak, "at_s", (int, float)),
+        "feedback": rubric.feedback(reply, weak, "at_s", (int, float), MAX_FEEDBACK),
     }
 
 

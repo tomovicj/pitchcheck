@@ -119,38 +119,70 @@ def buzzwords(text: str) -> list[str]:
 
 Ask = Callable[..., tuple[dict | None, str]]
 
-# Statements Gemma labels in one call: its reply has an entry for each and must fit in the output limit
-STATEMENTS_PER_CALL = 40
-# Statements shown for one item of the checklist
+# Units Gemma labels in one call: its reply has an entry for each and must fit in the output limit
+UNITS_PER_CALL = 40
+# Lines shown for one item of the checklist
 QUOTED_PER_ITEM = 2
+# A number written as a figure: how a slide gives one
+FIGURE = re.compile(r"\d")
 
-# Gemma gives each statement a label. Asked the other way round, for the statements that say each item,
-# the checklist came back empty for all nine, on a pitch and a deck that say most of them (Kaggle T4,
-# 11 October 2026). That prompt showed the reply's shape with empty lists; the reply itself was not
-# kept, so whether Gemma gave the shape back is a guess. Here the shape cannot pass for an answer, the
-# replies are kept, and the question is the kind Gemma answered sensibly before, when it named the
-# topics of each segment.
-LABEL_PROMPT = """You are sorting the statements of a {kind} by what each one tells the audience. Sort only; do not judge the business idea.
 
-Give every statement one label: the line below that describes it, or "none".
+class Unit(NamedTuple):
+    """What Gemma gives one label: a statement of the speaker, or a whole slide."""
+
+    # As Gemma is shown it
+    text: str
+    # {"at_s": seconds} or {"slide": number}
+    where: dict
+    # The lines that count as said when the unit gets a label: the statement itself, or the lines of the slide
+    lines: list[str]
+    # Printed above the first unit that has it: the segment of the recording a statement is from
+    heading: str = ""
+
+
+# Gemma gives each unit a label: a statement of the speaker, or a slide. What was tried, on a Kaggle T4
+# on 11 October 2026 with the test recording and the test deck:
+# - Asked for the statements that say each item, the checklist came back empty for all nine. That prompt
+#   showed the reply's shape with empty lists; the reply was not kept, so whether Gemma gave the shape
+#   back is a guess. Here the shape cannot pass for an answer, and the replies are kept.
+# - With a label for each statement, the spoken pitch came out right. The lines of the slides did not:
+#   a bullet such as "Organizers review 50 decks in two days" says too little alone, and Gemma called
+#   the slide about how organizers work today "solution" in one run and "traction" in the next. A slide
+#   is labelled as a whole, with its title and its point, which is how Gemma placed the topics on this
+#   deck correctly in the first version of the rubric.
+LABEL_PROMPT = """You are sorting the {unit}s of a {kind} by what each one tells the audience. Sort only; do not judge the business idea.
+
+Give every {unit} one label: the line below that describes what it is about, or "none".
 {checklist}
-- none: a greeting, a thank-you, a question, a bare heading such as "Our team", or a statement that fits no line above
+- none: a greeting, a thank-you, a question, a bare heading such as "Our team", or a {unit} that fits no line above
 
-A statement gets a label for what it says itself, not for what the statements around it say. A statement about how things are today, without the product, is the problem, even when it stands between statements about the product. When a statement fits two labels, give the one it says most directly.
+A {unit} gets a label for what it says itself, not for what the {unit}s around it say. A {unit} about how things are today, without the product, is the problem, even when it stands between {unit}s about the product. When a {unit} fits two labels, give the one it is mostly about.
 
 An example, from another company:
 {example}
 
-{heard}. Each statement has a number in brackets:
-{statements}
+{heard}. Each {unit} has a number in brackets:
+{units}
 
-Reply with only a JSON object that gives each statement number its label, as in the example:
-{{"{first}": "<label>", ...and so on for every statement up to "{last}": "<label>"}}"""
+Reply with only a JSON object that gives each {unit} number its label, as in the example:
+{{"{first}": "<label>", ...and so on for every {unit} up to "{last}": "<label>"}}"""
 
-# One statement for each default label, in an order a pitch might have them. On the test deck Gemma gave
-# a whole slide about how organizers work today the label of the slides around it, "solution"; the
-# example shows such a statement as the problem. A label an event's own topics do not have becomes none.
-EXAMPLE_STATEMENTS = [
+
+def example(units: list[tuple[str, str]]) -> str:
+    """A worked example for the labelling prompt, from units and their labels.
+
+    The units are lettered so that their labels cannot be taken for those of the numbered ones.
+    A label that an event's own topics do not have becomes none.
+    """
+    return "\n".join(
+        [f"  [{chr(97 + i)}] {text}" for i, (text, _) in enumerate(units)]
+        + [json.dumps({chr(97 + i): label if label in CHECKLIST else "none" for i, (_, label) in enumerate(units)})]
+    )
+
+
+# One statement for each default label, in an order a pitch might have them, with two about how things
+# are today as the problem
+STATEMENT_EXAMPLE = example([
     ("Hello, we are Velo.", "none"),
     ("Velo is an app that unlocks any city bike in ten seconds.", OPENING),
     ("Today a commuter queues at a kiosk for twenty minutes to rent a bike.", "problem"),
@@ -163,11 +195,7 @@ EXAMPLE_STATEMENTS = [
     ("We are two engineers who ran the city's bike scheme.", "team"),
     ("We are raising 100,000 euros to add 500 bikes.", "ask"),
     ("Thank you.", "none"),
-]
-EXAMPLE = "\n".join(
-    [f"  [{chr(97 + i)}] {statement}" for i, (statement, _) in enumerate(EXAMPLE_STATEMENTS)]
-    + [json.dumps({chr(97 + i): label if label in CHECKLIST else "none" for i, (_, label) in enumerate(EXAMPLE_STATEMENTS)})]
-)
+])
 
 
 def label_of(value: object) -> str | None:
@@ -177,44 +205,39 @@ def label_of(value: object) -> str | None:
     return name if name in CHECKLIST else None
 
 
-def run_checklist(ask: Ask, groups: list[tuple[str, dict, list[str]]], **wording: str) -> tuple[list[dict] | None, list]:
-    """Ask Gemma to label each statement with the item of CHECKLIST it says, and turn the labels into a checklist.
+def run_checklist(
+    ask: Ask, units: list[Unit], number: re.Pattern = NUMBER, **wording: str
+) -> tuple[list[dict] | None, list]:
+    """Ask Gemma to label each unit with the item of CHECKLIST it says, and turn the labels into a checklist.
 
-    groups holds, for each segment of speech or each slide, a heading, where it is ({"at_s": seconds} or
-    {"slide": number}) and its statements as Gemma heard or read them. What counts for an item is always
-    one of those statements, never words made up for the answer.
+    A unit is a statement of the speaker or a slide. wording names them for the prompt: kind, heard,
+    unit and example. number is what counts as a number in a line. What counts for an item is always
+    something Gemma heard or read, never words made up for the answer.
 
-    The checklist has a line for each item: whether a statement says it, the statements, and the place of
-    the first. For a topic that needs a number, "number" tells whether a statement about it carries one.
-    With it comes every statement and its label, for checking the labels. The checklist is None when
-    there is nothing to label or no statement got a label: a reply that cannot be used must not count as
-    a pitch that says nothing. What Gemma replied comes back in its place.
+    The checklist has a line for each item: whether a unit says it, lines of it, and the place of the
+    first. For a topic that needs a number, "number" tells whether a line about it carries one. With it
+    comes every unit and its label, for checking the labels. The checklist is None when there is
+    nothing to label or no unit got a label: a reply that cannot be used must not count as a pitch that
+    says nothing. What Gemma replied comes back in its place.
     """
-    numbered = {}
-    for heading, where, statements in groups:
-        for statement in statements:
-            numbered[len(numbered) + 1] = (statement, where, heading)
-
     labels, replies = {}, []
-    numbers = list(numbered)
-    for start in range(0, len(numbers), STATEMENTS_PER_CALL):
-        batch = numbers[start : start + STATEMENTS_PER_CALL]
-        lines, heading = [], None
+    for start in range(0, len(units), UNITS_PER_CALL):
+        batch = range(start + 1, min(start + UNITS_PER_CALL, len(units)) + 1)
+        shown, heading = [], ""
         for n in batch:
-            if numbered[n][2] != heading:
-                heading = numbered[n][2]
-                lines.append(heading)
-            lines.append(f"  [{n}] {numbered[n][0]}")
+            if units[n - 1].heading != heading:
+                heading = units[n - 1].heading
+                shown.append(heading)
+            shown.append(f"  [{n}] {units[n - 1].text}")
         prompt = LABEL_PROMPT.format(
-            statements="\n".join(lines), checklist=CHECKLIST_GUIDE, example=EXAMPLE, first=batch[0], last=batch[-1],
-            **wording,
+            units="\n".join(shown), checklist=CHECKLIST_GUIDE, first=batch[0], last=batch[-1], **wording
         )
         reply, raw = ask([{"type": "text", "text": prompt}])
         replies.append(raw)
         for key, value in (reply or {}).items():
-            number = re.search(r"\d+", str(key))
-            if number and int(number.group()) in batch and (label := label_of(value)):
-                labels[int(number.group())] = label
+            found = re.search(r"\d+", str(key))
+            if found and int(found.group()) in batch and (label := label_of(value)):
+                labels[int(found.group())] = label
     if not labels:
         return None, replies
 
@@ -222,26 +245,28 @@ def run_checklist(ask: Ask, groups: list[tuple[str, dict, list[str]]], **wording
     if "solution" in PITCH_TOPICS:
         # Where the one line on what the company does ends and the account of the product begins is not
         # a line Gemma drew the same way twice: it called a deck's tagline "solution", and "We are
-        # PitchCheck" what it does. So the two labels are read together. The first statement about the
+        # PitchCheck" what it does. So the two labels are read together. The first unit about the
         # product is where the pitch says what it does, and the product is explained when there is more.
         product = sorted(said[OPENING] + said["solution"])
         said[OPENING], said["solution"] = product[:1], product[1:]
 
     checklist = []
     for item, numbers in said.items():
-        with_number = [n for n in numbers if NUMBER.search(numbered[n][0])]
-        # Of a topic that needs a number, the statements that carry one are the ones to show
-        shown = sorted((with_number if item in NUMBER_TOPICS and with_number else numbers)[:QUOTED_PER_ITEM])
+        lines = [line for n in numbers for line in units[n - 1].lines]
+        with_number = [line for line in lines if number.search(line)]
+        # Of a topic that needs a number, the lines that carry one are the ones to show
+        shown = (with_number if item in NUMBER_TOPICS and with_number else lines)[:QUOTED_PER_ITEM]
         entry = {
             "item": item,
             "found": bool(numbers),
-            "quote": " ".join(numbered[n][0] for n in shown),
-            **(numbered[numbers[0]][1] if numbers else {}),
+            # A line of a slide has no full stop of its own
+            "quote": " ".join(line if line[-1] in ".!?" else f"{line}." for line in shown),
+            **(units[numbers[0] - 1].where if numbers else {}),
         }
         if item in NUMBER_TOPICS:
             entry["number"] = bool(with_number)
         checklist.append(entry)
-    labelled = [{"statement": numbered[n][0], "label": labels.get(n, "none"), **numbered[n][1]} for n in numbered]
+    labelled = [{"statement": unit.text, "label": labels.get(n, "none"), **unit.where} for n, unit in enumerate(units, start=1)]
     return checklist, labelled
 
 
@@ -305,33 +330,40 @@ def weakest(criteria: list[dict], limit: int) -> list[dict]:
 
 
 def describe_findings(weak: list[dict], criteria: list[dict]) -> dict[str, str]:
-    """The rated criteria as the feedback prompts take them: the weakest numbered, the rest by name."""
+    """The rated criteria as the feedback prompts take them: the weakest with their reasons, the rest by name."""
     return {
-        "findings": "\n".join(
-            f"{n}. {c['name']}: {c['reason']} The top level takes: {c['target']}." for n, c in enumerate(weak, start=1)
-        ) or "(nothing: every criterion is at the top level)",
+        "findings": "\n".join(f"- {c['name']}: {c['reason']} The top level takes: {c['target']}." for c in weak)
+        or "(nothing: every criterion is at the top level)",
         "strengths": ", ".join(c["name"].lower() for c in criteria if c["level"] == 4) or "nothing",
     }
 
 
-def feedback(reply: dict, weak: list[dict], place: str, kinds: tuple[type, ...]) -> list[dict]:
-    """Gemma's feedback, one item for each finding it was given, in the order of the findings.
+# Feedback items kept for one finding: a criterion can be about two slides
+ITEMS_PER_FINDING = 2
 
-    Each item carries the name of the criterion it answers. An item that answers no finding is left
+
+def feedback(reply: dict, weak: list[dict], place: str, kinds: tuple[type, ...], limit: int) -> list[dict]:
+    """Gemma's feedback, each item under the finding it names, in the order of the findings, at most limit.
+
+    Each item carries the name of the criterion it is about. An item that names no finding is left
     out: with the signal measurements in its prompt Gemma advised fewer filler words at one a minute,
-    the top level, and a higher "voiced share of frames". place is the key that says where the item
-    applies ("at_s" or "slide") and kinds the types its value may have. When Gemma numbers none of
-    its items, they are kept as they came, one for each finding.
+    the top level, and a higher "voiced share of frames". Items are tied by name: asked for the number
+    of the finding, Gemma numbered its items one to six and put advice on word count under "Numbers".
+    place is the key that says where the item applies ("at_s" or "slide") and kinds the types its
+    value may have. When no item names a finding, they are kept as they came, one for each finding.
     """
     items = [
         f for f in (reply.get("feedback") if isinstance(reply.get("feedback"), list) else [])
         if isinstance(f, dict) and isinstance(f.get("text"), str) and f["text"].strip()
     ]
-    answers = {}
+    names = {c["name"].lower(): c["name"] for c in weak}
+    answers = {name: [] for name in names.values()}
     for item in items:
-        if type(item.get("finding")) is int and 1 <= item["finding"] <= len(weak):
-            answers.setdefault(item["finding"], item)
-    kept = [(weak[n - 1]["name"], answers[n]) for n in sorted(answers)] or [(None, item) for item in items[: len(weak)]]
+        name = names.get(str(item.get("about")).strip(" .\"'").lower())
+        if name and len(answers[name]) < ITEMS_PER_FINDING:
+            answers[name].append(item)
+    tied = [(name, item) for name, answered in answers.items() for item in answered]
+    kept = tied[:limit] if tied else [(None, item) for item in items[: len(weak)]]
     return [
         {place: item.get(place) if type(item.get(place)) in kinds else None, "text": item["text"].strip(),
          **({"criterion": name} if name else {})}
