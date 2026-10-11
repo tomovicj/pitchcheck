@@ -238,6 +238,10 @@ video.media-preview { background: #191918; }
 .checker-field input { width: 78px; min-height: 40px; padding: 0 12px; border: 1px solid #d9dccf; border-radius: 10px; background: white; color: #191918; font: inherit; }
 .checker-field input:focus-visible { outline: 2px solid #899344; outline-offset: 2px; }
 .checker-field input:disabled { opacity: .55; cursor: not-allowed; }
+.sample-link { margin-top: 14px; text-align: center; font-size: var(--text-label); color: #7d8076; }
+.sample-link button { color: #4d5c1c; text-decoration: underline; text-underline-offset: 3px; }
+.sample-link button:disabled { opacity: .5; cursor: not-allowed; }
+.results-sample-note { margin-bottom: 22px; padding: 14px 18px; border: 1px solid #e3e7ce; border-radius: 14px; background: #f6f7ec; font-size: var(--text-small); line-height: 1.6; color: #555c49; }
 .results-alignment { margin-bottom: 22px; }
 .results-verdict { margin-top: 22px; }
 .verdict-state { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; background: #eceee6; color: #63665d; }

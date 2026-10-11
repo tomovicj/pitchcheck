@@ -12,7 +12,7 @@ import { DeckUploader } from "@/components/deck-uploader";
 import { PitchResults } from "@/components/pitch-results";
 import { VerdictCard } from "@/components/verdict-card";
 import type { AudioAnalysis, DeckAnalysis, PitchCheck } from "@/lib/analysis";
-import { showResults, useResults } from "@/lib/results-store";
+import { type Results, showResults, useResults } from "@/lib/results-store";
 import { runAnalysis } from "@/lib/run-analysis";
 
 type JobKind = "pitch" | "deck" | "check";
@@ -79,7 +79,21 @@ export function PitchWorkspace() {
     });
   }
 
+  // A saved result of a real run, for showing the results without waiting for an analysis
+  async function showSample() {
+    const sample: PitchCheck | null = await fetch("/sample-check.json")
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+    if (!sample) return setErrors({ check: "The sample result could not be loaded." });
+    setErrors({});
+    show({ pitch: sample.pitch, slides: sample.deck, alignment: sample.alignment, sample: true });
+    requestAnimationFrame(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
   const { pitch, slides, alignment } = results;
+  // A new file makes its own result stale, and with it the comparison and any sample on show
+  const drop = (part: "pitch" | "slides"): Results =>
+    results.sample ? { pitch: null, slides: null } : part === "pitch" ? { pitch: null, slides } : { pitch, slides: null };
   const busy = !!job;
   const statusOf = (kind: JobKind) => (job?.kind === kind ? job : null);
   const missing = !recording && !deck ? "a recording and a PDF deck" : !recording ? "a recording" : !deck ? "a PDF deck" : null;
@@ -92,12 +106,12 @@ export function PitchWorkspace() {
           onSelect={(file) => {
             setRecording(file);
             setErrors({});
-            show({ pitch: null, slides });
+            show(drop("pitch"));
           }}
           onRemove={() => {
             setRecording(null);
             setErrors({});
-            show({ pitch: null, slides });
+            show(drop("pitch"));
           }}
           onAnalyze={analyzePitch}
           timeLimit={timeLimit}
@@ -111,12 +125,12 @@ export function PitchWorkspace() {
           onSelect={(file) => {
             setDeck(file);
             setErrors({});
-            show({ pitch, slides: null });
+            show(drop("slides"));
           }}
           onRemove={() => {
             setDeck(null);
             setErrors({});
-            show({ pitch, slides: null });
+            show(drop("slides"));
           }}
           onAnalyze={analyzeDeck}
           busy={busy}
@@ -131,12 +145,25 @@ export function PitchWorkspace() {
         status={statusOf("check")}
         error={errors.check}
       />
+      <p className="sample-link">
+        No files at hand?{" "}
+        <button type="button" onClick={showSample} disabled={busy}>
+          See a sample result
+        </button>
+      </p>
       {(pitch || slides) && (
         <div className="analysis-results" id="results">
           <div className="results-intro">
             <Sparkles aria-hidden="true" className="size-5" />
             <h3>Your pitch, a little clearer.</h3>
           </div>
+          {results.sample && (
+            <p className="results-sample-note">
+              This is a saved example, not your pitch: a real run of the check on a test recording made
+              with a synthetic voice and on a deck made for the test. Add your own files above to
+              replace it.
+            </p>
+          )}
           {alignment !== undefined && (
             <div className="results-alignment">
               <AlignmentResults alignment={alignment} />
@@ -147,7 +174,7 @@ export function PitchWorkspace() {
             {slides && <DeckResults result={slides} />}
           </div>
           {/* Only after a combined check: the verdict covers both files of one run. An older service sends no fingerprints. */}
-          {alignment !== undefined && pitch?.file && slides?.file && (
+          {!results.sample && alignment !== undefined && pitch?.file && slides?.file && (
             <div className="results-verdict">
               <VerdictCard check={{ pitch, deck: slides, alignment }} />
             </div>

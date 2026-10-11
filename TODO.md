@@ -72,8 +72,8 @@ Requirement 3 rests on it, and the official documentation lists only speech reco
 - [x] Results view with both scores side by side, insights, feedback, and the pitch-against-deck report.
 - [x] Landing page copy matches what the build does.
 - [x] Draw arrows as SVG icons, not Unicode characters.
-- [ ] Show the page thumbnails next to the slide-by-slide notes.
-- [ ] Keep results when the page is reloaded. A long check is lost if the tab closes.
+- [x] Show the page thumbnails next to the slide-by-slide notes.
+- [x] Keep results when the page is reloaded. They are still lost when the tab closes, and a running check is lost on reload.
 
 ## 7. Demo and pitch evidence
 
@@ -81,7 +81,7 @@ These map to the jury's Technology criteria.
 
 - [x] One architecture diagram that names the Google technology in use: README, "Architecture".
 - [x] One implementation problem and its fix. The strongest: Gemma did not hear pace (the same text at 124 and at 343 words a minute was "conversational" both times), so pace is measured from the signal and Gemma is no longer asked. The second: Gemma did not apply numeric limits (5.7 filler words a minute rated as "5 or fewer"; a pitch with two topics missing rated complete), so counts are rated in code and Gemma keeps the judgements. Others in the code: loudness statistics swamped by digital silence; `fetch` buffering large uploads in memory.
-- [ ] Record a full run on real material as a fallback for the live demo.
+- [ ] Record a full run on real material as a fallback for the live demo. Until then "See a sample result" shows a saved run on the test recording and the test deck; replace `public/sample-check.json` with a run on real material when there is one.
 - [ ] Measure what one machine handles on the demo hardware. Known so far, single runs: laptop CPU, 31 s recording in about 4 minutes, 8 slides in about 13 minutes; Kaggle T4, 31 s recording in 64 seconds. One analysis runs at a time.
 - [ ] Claim only what the build does. "Gemma hears tone of voice" goes in the pitch only if section 1 confirms it. Do not claim emotion recognition: the product does not label emotions.
 

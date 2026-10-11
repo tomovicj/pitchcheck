@@ -41,6 +41,8 @@ Read from the code on the `feature/pitch-rubric` branch. "Implemented" means it 
 | Check that the spoken pitch follows the deck: deck points the talk never explains, statements where the two disagree, recommendations | Implemented (`services/audio/app/alignment.py`); a report next to the two scores, not part of either. Reading the slides word for word is not checked |
 | Verdict for the organizer: after a combined check the team downloads a verdict (both scores, the level behind each criterion, a two-sentence summary, a fingerprint of each file) and a proof that opens the fingerprints | Implemented; see [Verdict](#verdict) |
 | `/verify`: the organizer checks a verdict against the files a team shows and against this installation's setup | Implemented in the browser. Comparing the scores means running the files through the main page by hand |
+| "See a sample result": shows a saved result without running an analysis | Implemented. `public/sample-check.json` is a real run of the combined check on the test recording and the test deck, and the page labels it as an example |
+| Results stay on the page across a reload of the tab | Implemented with `sessionStorage`; the files themselves have to be chosen again |
 
 Whisper and the wav2vec2 emotion classifier have been removed. Every judgement and every piece of feedback comes from Gemma; Praat and the PDF supply measurements only.
 

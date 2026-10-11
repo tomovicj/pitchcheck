@@ -7,6 +7,8 @@ export type Results = {
   slides: DeckAnalysis | null;
   // Missing until a combined check has run; null when it ran and the two could not be compared
   alignment?: Alignment | null;
+  // The saved example from public/sample-check.json, not an analysis of the visitor's files
+  sample?: boolean;
 };
 
 // The results outlive a reload of the tab, because a full check can take many minutes. They live in
