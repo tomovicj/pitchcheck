@@ -6,7 +6,7 @@ Built for the GDG Belgrade DevFest hackathon, whose theme is "Reimagine the Even
 
 > **Status on 10 October 2026: work in progress.** The app accepts an audio or video recording. Gemma 4 E2B listens to it in segments of up to 30 seconds and returns a pitch score, insights and feedback. Slides are not accepted yet, and whether Gemma reliably hears tone and emotion has not been tested on real recordings. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
 
-The `frontend` branch adds a reference-inspired landing page and two upload cards. The recording card keeps the existing analysis flow. The deck card accepts PDFs up to 25 MB for browser-local selection and preview; PDFs are not submitted to Gemma yet, and slide scoring remains unimplemented. A centered "Check pitch + deck" button below the cards introduces the planned combined check: separate delivery and deck scores plus speech-to-slide alignment. It is marked coming soon and expands an explanation; it does not submit files for combined analysis. Design notes and component specifications are in `docs/research/`.
+The `frontend` branch adds a reference-inspired landing page and two illustrated upload cards. The recording card keeps the existing analysis flow, with live progress and a results workspace showing Gemma's delivery score, per-criterion breakdown, insights and improvement suggestions. Tabs separate the overview, pitch moments and measured audio details; feedback timestamps replay the selected recording at that moment. A deck results card is explicitly marked coming soon, with no invented score. The deck uploader accepts PDFs up to 25 MB for browser-local selection and preview; PDFs are not submitted to Gemma yet, and slide scoring remains unimplemented. A centered "Check pitch + deck" button below the cards introduces the planned combined check: separate delivery and deck scores plus speech-to-slide alignment. It is marked coming soon and expands an explanation; it does not submit files for combined analysis. Design notes and component specifications are in `docs/research/`.
 
 ## Requirements
 
@@ -159,7 +159,7 @@ AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
 
 | Path | Contents |
 | --- | --- |
-| `src/app/page.tsx`, `src/components/audio-analyzer.tsx` | Upload page and results view |
+| `src/app/page.tsx`, `src/components/audio-analyzer.tsx`, `src/components/analysis-results.tsx` | Upload page, recording analysis and results workspace |
 | `src/app/api/analyze/route.ts` | Streams the upload to the audio service and relays its progress events |
 | `src/lib/analysis.ts` | Types for the analysis result and progress events |
 | `services/audio/app/main.py` | FastAPI service: decodes the file, measures it, splits it, and runs Gemma per segment and for the score |
@@ -170,6 +170,8 @@ AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
 
 ## Privacy
 
-Local processing is part of what PitchCheck is for: a startup should not have to send its idea to someone else's server to get feedback. Today both services run in local Docker containers, and model weights are downloaded from Hugging Face on first start.
+PitchCheck is privacy first. For competitions, the web app, audio service and Gemma all run on the competition organizer's server. Uploaded pitch recordings, slide decks and project content stay within the organizer's infrastructure; analysis does not send them to external AI providers. The landing page states this beside the main actions, at the upload workspace and in the FAQ.
 
-Whether the finished product runs on the participant's machine or on a server the organizer controls is not decided, and it depends on how heavy the chosen Gemma variant turns out to be.
+Both services run in Docker containers, and model weights are downloaded from Hugging Face on first start. PDF selection and preview currently stay in the participant's browser until deck analysis is implemented.
+
+The Kaggle notebook is a development option that processes recordings remotely. Competition deployments must run the audio service and Gemma on the organizer's server to uphold the privacy promise.

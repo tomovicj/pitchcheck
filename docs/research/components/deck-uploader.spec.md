@@ -1,37 +1,20 @@
 # DeckUploader
 
-Target: `src/components/deck-uploader.tsx`.
-Interaction model: click/drop PDF selection, local preview, replace/remove.
-Source CSS unavailable; values are specified adaptations.
+Targets: `src/components/deck-uploader.tsx`, `pitch-workspace.css`.
+Sky card: PanelsTopLeft SVG, step 02, "Let your slides speak." heading, preview/size
+features, scoring-soon label and illustrated UploadDropzone.
 
-Reuse UploadDropzone from `@/components/upload-dropzone` with these props:
-id="deck-file", accept="application/pdf,.pdf", title="Drop your pitch deck here",
-hint="PDF presentation · up to 25 MB", file, onSelect, onRemove, kind="deck".
-Optional disabled prop supported by the shared component.
+Click/drop selection stays in browser memory. Validate .pdf extension (case
+insensitive), application/pdf, application/x-pdf or empty MIME, nonempty, at most
+25 MB, and %PDF- within the first 1024 bytes. Invalid replacements preserve the
+previous selection and show role=alert. Async validation races are guarded.
 
-Wrapper article id="pitch-deck" className="checker-card deck-checker".
-Header div class checker-heading: icon box (PanelsTopLeft SVG) and
-small span class status-pill coming-soon: "COMING SOON".
-Eyebrow p class checker-kicker: "02 / THE STORY".
-h3: "Pitch deck checker". Description p class checker-description:
-"A clearer story starts with stronger slides. Add your presentation here."
-Then dropzone. Bottom p class checker-note: "PDF upload and preview are ready.
-Slide scoring will be connected in the next step." Use info icon if helpful.
+Full-width Preview PDF button is disabled until a valid file is selected. Preview
+opens its blob URL in a new tab with noopener/noreferrer. Remove/replace work,
+including choosing the same file again. Revoke URLs on replacement/unmount.
+Optional disabled prop is preserved. No iframe on mobile.
 
-PDF validation: filename .pdf (case insensitive), MIME application/pdf or empty,
-max 25MB, nonempty, actual file header contains %PDF- in first 1024 bytes.
-Invalid file gives an accessible inline role=alert with explanatory text; keep
-last valid selection. Do not call any backend and never produce scores.
-Race protection for async validation if quickly replacing or removing files.
-Generate a blob URL for valid file; revoke on replacement/unmount using effect.
-Selected preview: link styled button secondary, target=_blank, rel=noopener
-noreferrer, "Preview PDF" + ExternalLink SVG, text "Stored in this browser only".
-Remove clears file/error and revokes URL, reselect same file works.
-No iframe PDF embedding on mobile; a separate browser tab preview is sufficient.
-Not an analysis button; avoid nonfunctional clickable "Analyze deck".
-
-Desktop card CSS provided by root: padding 30px, radius 24px, border #e6e7e1,
-white background, h3 26px, body 14px. At 960px cards stack, 640px padding 22px.
-Icons via lucide-react SVG with aria-hidden; accessible labels for icon controls.
-Imports: React hooks, lucide, shared UploadDropzone. Named export DeckUploader.
-No other file edits; verify npx tsc --noEmit before finishing if dependencies ready.
+PDF analysis is coming soon. No backend call or invented score. The results
+workspace includes a matching deck card, clearly marked coming soon.
+Both upload cards share proportions and responsive breakpoints. Decorative SVGs
+are hidden from accessibility; interactive icon controls have text labels.

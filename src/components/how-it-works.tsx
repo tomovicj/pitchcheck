@@ -1,24 +1,75 @@
-import { AudioLines, RefreshCw, Video } from "lucide-react";
+import { ArrowRight, ArrowUpRight, AudioLines, FileText, RefreshCw, Sparkles, Video } from "lucide-react";
+
+const waveform = [18, 30, 22, 44, 60, 38, 72, 48, 86, 58, 36, 68, 92, 52, 76, 40, 60, 32, 46, 24, 36];
+
+function UploadPreview() {
+  return (
+    <div className="how-upload-preview">
+      <div className="how-file how-file-deck">
+        <span className="how-file-icon"><FileText /></span>
+        <span><strong>Pitch deck</strong><small>PDF presentation</small></span>
+      </div>
+      <div className="how-file how-file-recording">
+        <span className="how-file-icon"><Video /></span>
+        <span><strong>Your pitch</strong><small>Audio or video</small></span>
+        <span className="how-file-dot" />
+      </div>
+    </div>
+  );
+}
+
+function ListeningPreview() {
+  return (
+    <div className="how-listening-preview">
+      <span className="how-listening-label"><Sparkles />Gemma is listening</span>
+      <div className="how-waveform">
+        {waveform.map((height, index) => <span key={index} style={{ height: `${height}%` }} />)}
+      </div>
+      <span className="how-listening-caption">Every word. Every pause.</span>
+    </div>
+  );
+}
+
+function PracticePreview() {
+  return (
+    <div className="how-practice-preview">
+      <span className="how-practice-orbit" />
+      <span className="how-practice-center"><RefreshCw /></span>
+      <span className="how-practice-chip how-practice-feedback"><Sparkles />Feedback</span>
+      <span className="how-practice-chip how-practice-take"><AudioLines />Next take</span>
+    </div>
+  );
+}
 
 const steps = [
-  { number: "01", Icon: Video, title: "Bring your pitch", description: "Drop in a video or audio recording. You can also add a PDF deck to preview your slides alongside your practice." },
-  { number: "02", Icon: AudioLines, title: "Listen a little closer", description: "Gemma listens to the recording and returns a delivery score, insights and feedback tied to moments in your pitch." },
-  { number: "03", Icon: RefreshCw, title: "Go again, with clarity", description: "Turn feedback into a focused practice session. Record another take, check your delivery and keep moving forward." },
+  { number: "01", label: "Upload", variant: "upload", Preview: UploadPreview, title: "Bring your pitch.", description: "Upload your recording. Add a PDF deck to preview your slides." },
+  { number: "02", label: "Discover", variant: "listen", Preview: ListeningPreview, title: "Find your focus.", description: "Get a delivery score and feedback on the moments that matter." },
+  { number: "03", label: "Refine", variant: "practice", Preview: PracticePreview, title: "Come back stronger.", description: "Put your feedback to work. Record a new take when you're ready." },
 ];
 
 export function HowItWorks() {
   return (
     <section className="how-section site-container" id="how-it-works" aria-labelledby="how-title">
-      <p className="eyebrow">From practice to presentation</p>
-      <h2 id="how-title" className="section-title">Small steps. Stronger pitches.</h2>
-      <div className="steps-grid">
-        {steps.map(({ number, Icon, title, description }) => (
-          <div className="step" key={number}>
-            <span className="step-icon"><Icon aria-hidden="true" /></span>
-            <span className="step-number">{number} /</span>
-            <h3>{title}</h3><p>{description}</p>
+      <div className="how-panel">
+        <div className="how-heading">
+          <div>
+            <p className="eyebrow">A little practice goes a long way</p>
+            <h2 id="how-title" className="section-title">Small steps.<br /><span>Stronger pitches.</span></h2>
           </div>
-        ))}
+          <a href="#pitch-video" className="how-start-link">Start your first check <ArrowUpRight aria-hidden="true" /></a>
+        </div>
+        <ol className="how-steps" role="list">
+          {steps.map(({ number, label, variant, Preview, title, description }, index) => (
+            <li className={`how-step how-step-${variant}`} key={number}>
+              <div className="how-step-meta"><span className="how-step-label">{label}</span><span className="how-step-number">{number}</span></div>
+              <div className="how-step-art" aria-hidden="true"><Preview /></div>
+              <h3>{title}</h3>
+              <p className="how-step-description">{description}</p>
+              {index < steps.length - 1 && <span className="how-step-connector"><ArrowRight aria-hidden="true" /></span>}
+            </li>
+          ))}
+        </ol>
+        <p className="how-repeat-note"><RefreshCw aria-hidden="true" />A simple loop. A little more confidence.</p>
       </div>
     </section>
   );

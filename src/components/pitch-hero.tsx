@@ -1,4 +1,4 @@
-import { ArrowUpRight, AudioLines, PanelsTopLeft, RefreshCw } from "lucide-react";
+import { ArrowUpRight, AudioLines, PanelsTopLeft, RefreshCw, ShieldCheck } from "lucide-react";
 import { ProductShowcase } from "@/components/product-showcase";
 
 export function PitchHero() {
@@ -11,7 +11,10 @@ export function PitchHero() {
         <a href="#pitch-video" className="pill-button">Check your pitch <ArrowUpRight aria-hidden="true" /></a>
         <a href="#pitch-deck" className="pill-button pill-secondary">Explore deck checker <ArrowUpRight aria-hidden="true" /></a>
       </div>
-      <p className="hero-footnote">Powered by Gemma. Built for your next big moment.</p>
+      <div className="hero-privacy">
+        <span className="hero-privacy-label"><ShieldCheck aria-hidden="true" />Privacy first</span>
+        <p>Your files stay on the organizer&apos;s server.</p>
+      </div>
       <div className="hero-showcase"><ProductShowcase /></div>
       <div className="capability-strip">
         <div className="capability-item"><AudioLines aria-hidden="true" /><div><strong>Make yourself heard.</strong><p>Feedback on your pitch delivery.</p></div></div>

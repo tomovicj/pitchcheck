@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "PitchCheck — Your next pitch. Your best pitch.",
-  description: "Practice your pitch with Gemma-powered delivery feedback. Upload your recording and prepare your PDF pitch deck.",
+  description: "Privacy first pitch practice with Gemma. Your recording and slide deck stay on the competition organizer's server.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

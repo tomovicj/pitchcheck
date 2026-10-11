@@ -7,7 +7,7 @@ export function SiteFooter() {
       <div className="site-container footer-content">
         <div>
           <a href="#top" aria-label="PitchCheck home"><Image src="/brand/pitchcheck.png" alt="PitchCheck" width={1210} height={340} sizes="136px" className="brand-image" /></a>
-          <p className="footer-tagline">Practice with purpose.</p>
+          <p className="footer-tagline">Privacy first.</p>
         </div>
         <div className="footer-right"><span>Built with Gemma</span><a href="#pitch-video" className="footer-link">Back to your pitch <ArrowUpRight aria-hidden="true" /></a></div>
       </div>

@@ -10,7 +10,7 @@ Each has a working assumption so the build is not blocked. Change the assumption
 - [ ] **What does "no transcript" rule out?** Assumed: a transcript is never the basis for the pitch score. Open: whether the UI may still show the text of what was said.
 - [ ] **Score scale and rubric.** Proposed: 0 to 100 for the slides and 0 to 100 for the pitch, each built from per-criterion sub-scores against a fixed rubric.
 - [ ] **Slide formats.** Proposed: PDF only for the demo. PPTX needs a conversion step.
-- [ ] **Where the demo runs.** Participant laptop or one organizer-style server, and whether that machine has a GPU.
+- [ ] **Demo hardware.** Competition deployment runs the web app, audio service and Gemma on the organizer's server. Still to confirm the demo machine and whether it has a GPU.
 
 ## 1. Prove that Gemma can hear delivery
 
@@ -56,8 +56,10 @@ Do this first. Requirement 3 rests on it, and the official documentation lists o
 - [x] Centered pitch + deck button with a distinct visual treatment and an expandable explanation of the planned separate scores and speech-to-slide alignment. Marked coming soon until the combined analysis is implemented.
 - [x] Reference-inspired landing page, supplied logo and responsive upload workspace on the `frontend` branch.
 - [ ] Results view with both scores, insights, feedback, and the pitch-against-deck findings.
+- [x] Redesign the upload cards and delivery results: real Gemma score and criteria, insights, timestamped improvement suggestions, pitch moments and measured audio details. Deck results are explicitly coming soon until the backend exists.
 - [x] Keep the upload cards' claims true: video analysis uses the audio track; PDF selection and preview are local to the browser, and slide scoring is marked coming soon.
 - [x] Draw arrows as SVG icons, not Unicode characters. Shared `lucide-react` SVG icons are used throughout the frontend.
+- [x] State the privacy first organizer-hosted deployment on the landing page, beside uploads and in the FAQ: recordings and decks stay on the competition organizer's server, where Gemma runs.
 
 ## 7. Demo and pitch evidence
 

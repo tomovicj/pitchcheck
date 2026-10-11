@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Info, PanelsTopLeft } from "lucide-react";
+import { Check, ExternalLink, PanelsTopLeft, ShieldCheck, Sparkles } from "lucide-react";
 import { UploadDropzone } from "@/components/upload-dropzone";
 
 const MAX_DECK_SIZE = 25 * 1024 * 1024;
@@ -72,16 +72,16 @@ export function DeckUploader({ disabled = false }: { disabled?: boolean }) {
   return (
     <article id="pitch-deck" className="checker-card deck-checker">
       <div className="checker-heading">
-        <span className="checker-icon"><PanelsTopLeft aria-hidden="true" /></span>
-        <span className="status-pill coming-soon">COMING SOON</span>
+        <span className="checker-category"><span className="checker-icon"><PanelsTopLeft aria-hidden="true" /></span>Pitch deck</span>
+        <span className="checker-step" aria-hidden="true">02</span>
       </div>
-      <p className="checker-kicker">02 / THE STORY</p>
-      <h3>Pitch deck checker.</h3>
-      <p className="checker-description">A clearer story starts with stronger slides. Add your presentation here.</p>
+      <h3>Let your slides speak.</h3>
+      <p className="checker-description">Your story, ready for a closer look.</p>
+      <div className="checker-features" aria-label="Deck features"><span><Check aria-hidden="true" />PDF preview</span><span><Check aria-hidden="true" />25 MB max</span><span className="checker-feature-soon">Scoring soon</span></div>
       <UploadDropzone
         id="deck-file"
         accept="application/pdf,.pdf"
-        title="Drop your pitch deck here"
+        title="Drop your deck here"
         hint="PDF presentation · up to 25 MB"
         file={selection?.file ?? null}
         onSelect={selectFile}
@@ -90,24 +90,14 @@ export function DeckUploader({ disabled = false }: { disabled?: boolean }) {
         kind="deck"
       />
       {error && <p className="checker-error" role="alert">{error}</p>}
-      {selection && (
-        <div className="checker-actions">
+      <div className="checker-actions">
+        {selection ? (
           <a className="pill-button pill-secondary" href={selection.previewUrl} target="_blank" rel="noopener noreferrer">
             Preview PDF <ExternalLink aria-hidden="true" />
           </a>
-          <span>Stored in this browser only.</span>
-        </div>
-      )}
-      {!selection && (
-        <div className="checker-actions">
-          <span className="deck-placeholder">Slide analysis coming soon</span>
-          <span>Upload &amp; preview available</span>
-        </div>
-      )}
-      <p className="checker-note">
-        <Info aria-hidden="true" />
-        <span>PDF upload and preview are ready. Slide scoring will be connected in the next step.</span>
-      </p>
+        ) : <button type="button" className="pill-button pill-secondary" disabled>Preview PDF <ExternalLink aria-hidden="true" /></button>}
+      </div>
+      <div className="checker-bottomline"><span><ShieldCheck aria-hidden="true" />Browser-local preview</span><span><Sparkles aria-hidden="true" />Analysis coming soon</span></div>
     </article>
   );
 }

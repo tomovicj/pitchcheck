@@ -14,6 +14,10 @@ PitchCheck adaptation's specified behaviors, to verify in browser QA.
   filename and size, supports replacement/removal and opens a local preview.
 - PDF files remain in browser memory; no nonexistent deck API is called.
 - PDF analysis is clearly labeled coming soon; no fictional score is shown.
+- Delivery results have overview, pitch moments and audio details tabs. Tabs
+  support click, arrow keys and Home/End. Timestamp buttons seek and play the
+  selected recording. Analysis completion focuses the results heading; missing
+  scores preserve any returned insights and feedback.
 - FAQ details open/close through native summary controls; SVG plus/minus icons.
 - Mobile: navigation collapses at 960px, cards stack at 960px, hero title and
   artwork simplify at 640px. No content may overflow at 390px.

@@ -11,7 +11,10 @@ Title: "Your next pitch." / "Your best pitch."; 88px/1.05, weight 500,
 Subtitle: "Find your rhythm. Sharpen your slides. Walk in ready."
 CTA: black "Check your pitch" and outlined "Explore deck checker";
 48px tall, 14px type, gap 12px, margin-top 30px; lucide SVG arrows.
-Small support line: "Powered by Gemma. Built for your next big moment."
+Privacy notice below CTAs: compact "Privacy first" mint badge with a decorative
+lucide ShieldCheck SVG and "Your files stay on the organizer's server."
+One inline row on desktop; badge above a single line of reassurance on mobile.
+No card or additional support paragraph; Gemma is credited in the showcase.
 Showcase starts 54px after CTAs. Mobile title 50px, -2.7px tracking;
 CTAs wrap, subtitle 16px; section top padding 38px.
 Assets: ProductShowcase component. N/A per-state content.

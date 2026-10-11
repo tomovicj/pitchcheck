@@ -19,6 +19,7 @@ export default function Home() {
             <div><p className="eyebrow">Your practice space</p><h2 id="workspace-title" className="section-title">Good pitches start here.</h2></div>
             <p className="section-description">Bring the recording. Bring the slides.<br />Take the next step toward a clearer pitch.</p>
           </div>
+          <p className="workspace-privacy"><ShieldCheck aria-hidden="true" /><span>Private uploads. Organizer-hosted.</span></p>
           <div className="checker-grid"><AudioAnalyzer /><DeckUploader /></div>
           <CombinedPitchCheck />
           <p className="workspace-note"><ShieldCheck aria-hidden="true" /> Scores rate your delivery and slides, never your business idea.</p>
