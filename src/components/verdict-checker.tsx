@@ -33,9 +33,9 @@ async function checkSetup(verdict: Verdict): Promise<Finding> {
   const res = await fetch("/api/health").catch(() => null);
   const setup: AnalysisSetup | undefined = res?.ok ? (await res.json().catch(() => null))?.setup : undefined;
   if (!setup) return { label, state: "skipped", detail: "The analysis service here could not be reached, so the setups were not compared." };
-  const differences = (["model", "dtype", "slide_tokens", "code_sha256"] as const)
-    .filter((key) => setup[key] !== verdict.setup[key])
-    .map((key) => (key === "code_sha256" ? "prompts and rubrics" : key === "slide_tokens" ? "slide detail" : key));
+  const differences = (["model", "dtype", "slide_tokens", "topics", "code_sha256"] as const)
+    .filter((key) => String(setup[key]) !== String(verdict.setup[key]))
+    .map((key) => (key === "code_sha256" ? "prompts and rubrics" : key === "slide_tokens" ? "slide detail" : key === "topics" ? "expected topics" : key));
   return differences.length
     ? { label, state: "mismatch", detail: `The verdict was made with a different setup than this one: ${differences.join(", ")}. A re-run here is not expected to give the same scores.` }
     : { label, state: "match", detail: "The verdict was made with the same model, prompts and rubrics as this installation." };

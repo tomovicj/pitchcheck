@@ -27,7 +27,7 @@ Requirement 3 rests on it, and the official documentation lists only speech reco
 
 ## 2. Pitch analysis
 
-- [x] Split the decoded audio into segments of at most 30 seconds, cutting at pauses so words are not split. The last two segments are split near the middle, so a recording does not end in a stub.
+- [x] Split the decoded audio into segments of at most 20 seconds, cutting at pauses so words are not split. The last two segments are split near the middle, so a recording does not end in a stub. Gemma would take 30 seconds, but it dropped the end of a 27-second segment from its list of what was said.
 - [x] Per segment, call Gemma with the audio and its measurements. Get JSON back: tone of voice, filler words heard, topics covered, the statements the speaker made.
 - [x] Measure the speaking rate of each segment from the signal and label it slow, conversational or fast.
 - [x] Compute pauses from the signal (intensity and voicing) instead of from Whisper word timestamps.
@@ -51,7 +51,7 @@ Requirement 3 rests on it, and the official documentation lists only speech reco
 - [x] Compare the key points of the slides with the key points of the speech. Report deck points the speaker never explained and statements that contradict the slides, with slide numbers and timestamps.
 - [x] Do not penalize summarizing a slide or adding explanation that is not on it. The prompt says so, and the report is not part of either score.
 - [ ] Check reading the slides word for word. It needs the words that were said, not key points.
-- [ ] Try it on a real pitch. On the test pair it found the planted price mismatch and the slide the talk skipped.
+- [ ] Try it on a real pitch. On the test pair it found the planted price mismatch in every run. The slide the talk skipped (the team) it found in one run of five, and with 30-second segments it also listed points the talk did explain, because Gemma's list of what was said was incomplete.
 
 ## 5. Scoring
 
@@ -60,9 +60,10 @@ Requirement 3 rests on it, and the official documentation lists only speech reco
 - [ ] Try both rubrics on real material and adjust the level descriptions and limits. Only the filler word limits (one study, in English) and the contrast limit (WCAG 2.2, written for the web) come from outside the team.
 - [x] Code gives the levels for pace, pauses, pitch variation and loudness from the measurements. Gemma's levels for them moved between runs on the same voice.
 - [ ] Check the signal limits on real recordings: 2.7 and 5.5 syllables a second for pace, 2 seconds for a long pause, 2 semitones for even pitch, 6 dB and 9 dB for loudness (constants at the top of `services/audio/app/main.py`). They are the team's choice; none has a validated source.
-- [ ] Organizer's topic list. The expected topics are fixed in `PITCH_TOPICS` (`services/audio/app/rubric.py`); a short pitch is marked down for skipping "alternatives" and "team".
+- [ ] Organizer's topic list in the interface. The service takes the event's own topics from the `PITCH_TOPICS` variable (JSON, name to meaning); the default six mark a short pitch down for skipping "alternatives" and "team". There is no screen for it.
 - [x] Validate the model output: JSON parsing with one retry, levels, slide numbers, timestamps and lists are checked; anything else Gemma adds is dropped.
-- [ ] Make scores repeatable: greedy decoding and fixed prompts are in place. Run the same input three times on the demo machine and compare. On different hardware or dtype the levels can differ.
+- [x] Repeatable on one machine: greedy decoding, fixed prompts, and most levels are arithmetic. On the laptop CPU the test recording gave the same levels, score, statements and feedback text in two runs, and the test deck the same levels and score in four.
+- [ ] Measure how far scores move between machines (CPU bf16 against a T4 in float16, for a start). The verdict check needs that band.
 - [x] State on the results cards that the scores rate the delivery and the deck, not the business idea, what is measured, that the scores are not validated, and that the pitch score can be less accurate for some speakers.
 
 ## 6. Interface

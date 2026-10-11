@@ -32,8 +32,10 @@ GEMMA_DTYPE = os.getenv("GEMMA_DTYPE", "auto")
 # On CPU, "auto" offloads layers to disk when RAM looks short, which makes generation unusably slow,
 # so the default keeps everything in RAM there; the bf16 weights need about 10 GB for E2B.
 GEMMA_DEVICE_MAP = os.getenv("GEMMA_DEVICE_MAP") or ("auto" if torch.cuda.is_available() else "cpu")
-# Gemma accepts audio clips of at most 30 seconds
-MAX_SEGMENT_S = 30.0
+# Gemma accepts audio clips of at most 30 seconds. The default is shorter: of a 27-second segment Gemma
+# returned the first two thirds of what was said, and of segments under 20 seconds all of it, which the
+# comparison with the deck depends on. SEGMENT_SECONDS changes it; more than 30 is not possible.
+MAX_SEGMENT_S = min(30.0, float(os.getenv("SEGMENT_SECONDS") or 20))
 MIN_SEGMENT_S = 1.0
 PAUSE_THRESHOLD_S = 0.5
 # Frames this far below the loudest one count as silence
@@ -672,6 +674,7 @@ def describe_setup() -> dict:
         "model": GEMMA_MODEL,
         "dtype": str(model.dtype).removeprefix("torch.") if model is not None else None,
         "slide_tokens": deck.SLIDE_TOKENS,
+        "topics": list(rubric.PITCH_TOPICS),
         "code_sha256": CODE_SHA256,
     }
 

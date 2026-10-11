@@ -4,7 +4,7 @@ PitchCheck gives hackathon and startup teams feedback on a pitch before a human 
 
 Built for the GDG Belgrade DevFest hackathon, whose theme is "Reimagine the Event Experience with Gemma".
 
-> **Status on 11 October 2026.** The app takes a recording of the pitch and the deck as a PDF. Gemma 4 E2B listens to the recording in segments of up to 30 seconds and reads every slide. It returns a pitch score, a slide score, insights and feedback, and a report on whether the talk follows the deck. All of it has run end to end with the real model, but only on synthetic material: a text-to-speech voice and a deck made for the test. Whether Gemma reliably hears tone of voice has not been tested on real recordings, and the rubrics have not been tried on real pitches. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
+> **Status on 11 October 2026.** The app takes a recording of the pitch and the deck as a PDF. Gemma 4 E2B listens to the recording in segments of up to 20 seconds and reads every slide. It returns a pitch score, a slide score, insights and feedback, and a report on whether the talk follows the deck. All of it has run end to end with the real model, but only on synthetic material: a text-to-speech voice and a deck made for the test. Whether Gemma reliably hears tone of voice has not been tested on real recordings, and the rubrics have not been tried on real pitches. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
 
 The page has one workspace with two upload cards. Each card runs its own check, and the "Check pitch + deck" button below them runs both and compares them. Design notes and component specifications for the landing page are in `docs/research/`.
 
@@ -29,7 +29,7 @@ Read from the code on the `feature/pitch-rubric` branch. "Implemented" means it 
 | Live progress while the analysis runs | Implemented |
 | Pitch and loudness variation, measured from the signal with Praat | Implemented; sent to Gemma as supporting evidence |
 | Pauses, measured from the signal with Praat | Implemented |
-| Splitting the audio into segments of at most 30 seconds, cut at pauses | Implemented |
+| Splitting the audio into segments of at most 20 seconds, cut at pauses | Implemented. Gemma accepts up to 30 seconds, but of a 27-second segment it returned only the first two thirds of what was said |
 | Speaking rate, measured from the signal as syllables per second of speaking | Implemented; tried on one synthetic voice at three speeds |
 | Gemma 4 E2B listens to each segment: tone of voice, filler words, which of the expected pitch topics it explains, and the statements the speaker makes | Implemented; not yet validated on real recordings (TODO section 1) |
 | Gemma 4 E2B reviews the pitch from the segment observations and the measured findings: a level for structure and flow, insights and timestamped feedback | Implemented |
@@ -128,7 +128,7 @@ All seven steps are built, shaped by the Gemma limits in the next section.
 
 1. The team uploads the pitch video and the deck as a PDF.
 2. ffmpeg extracts the audio track as 16 kHz mono.
-3. The audio is split into segments of at most 30 seconds, because that is the longest clip Gemma accepts.
+3. The audio is split into segments of at most 20 seconds. Gemma accepts clips of up to 30 seconds; shorter ones made it keep all of what was said.
 4. For each segment, Gemma receives the audio together with signal measurements for that segment (pitch variation, loudness variation, speaking rate, pauses). It returns structured observations about delivery (tone of voice, filler words), the topics covered and the statements the speaker made.
 5. Deck pages are rendered to images and measured from the file. Gemma reads each page image, with the page's text from the file, for its title, its point and its key points.
 6. Gemma reviews the deck as a whole and scores the pitch from the segment observations. The two scores come out of the rubrics.
@@ -245,9 +245,11 @@ AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
 
 The page and the service have to be the same version: the page shows an error instead of results when the service behind it is older. With the Kaggle service the recording and the deck leave the laptop, through the tunnel, to Kaggle; that setup is for demonstrations on a machine that cannot run the model.
 
-`SLIDE_TOKENS` sets the visual tokens Gemma spends on one slide (70, 140, 280, 560 or 1120; default 560): more reads small text better and takes longer. `MAX_SLIDES` (default 20) caps how many pages of a deck are analyzed.
+`SLIDE_TOKENS` sets the visual tokens Gemma spends on one slide (70, 140, 280, 560 or 1120; default 560): more reads small text better and takes longer. `MAX_SLIDES` (default 20) caps how many pages of a deck are analyzed. `PITCH_TOPICS` replaces the six expected topics with an event's own, as a JSON object of name to meaning, for example `{"problem": "what hurts, and for whom", "go-to-market": "how it reaches buyers"}`; both rubrics and the comparison use it. `SEGMENT_SECONDS` (default 20, at most 30) sets the longest audio segment.
 
-Measured on one laptop CPU (16 threads, 12 GB for the Docker VM, bf16 weights): a 31-second recording takes about 4 minutes and an 8-slide deck about 13 minutes, at 50 to 80 seconds per slide. On a Kaggle T4 the same 31-second recording took 64 seconds. These are single runs, not benchmarks.
+On one machine the results repeat. On the laptop CPU the test recording gave the same levels, score, statements and feedback text in two runs, and the test deck the same levels and score in four. Across machines they can differ; that has not been measured.
+
+Measured on one laptop CPU (16 threads, 12 GB for the Docker VM, bf16 weights): a 31-second recording takes about 4 minutes, an 8-slide deck about 13 minutes at 50 to 80 seconds per slide, and the combined check of a one-minute recording with that deck took 16 to 19 minutes in five runs. On a Kaggle T4 the 31-second recording took 64 seconds. These are single runs on one machine, not benchmarks.
 
 ## Repository layout
 

@@ -41,8 +41,15 @@ export type Criterion = { name: string; level: number; reason?: string };
 // names the file without revealing anything about it until the salt is shown.
 export type FileFingerprint = { sha256: string; salt: string; bytes: number };
 
-// What produced an analysis: the model and a hash over the service's prompts, rubrics and limits
-export type AnalysisSetup = { model: string; dtype: string | null; slide_tokens: number; code_sha256: string };
+// What produced an analysis: the model, the expected topics, and a hash over the service's prompts,
+// rubrics and limits
+export type AnalysisSetup = {
+  model: string;
+  dtype: string | null;
+  slide_tokens: number;
+  topics?: string[];
+  code_sha256: string;
+};
 
 export type Segment = {
   start_s: number;

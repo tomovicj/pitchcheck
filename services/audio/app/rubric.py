@@ -5,15 +5,25 @@ the level where the description is a judgement; code gives it where the descript
 a share, because Gemma did not apply numeric limits reliably when asked to.
 """
 
+import json
+import os
+
 # Topics a pitch is expected to explain, and what each one means. The rubrics check that they are
-# covered, not whether they are good.
-PITCH_TOPICS = {
-    "problem": "what hurts, and for whom",
-    "solution": "what the product does",
-    "customer or market": "who buys it, or how many of them there are",
-    "alternatives": "competitors, or what people do today instead",
-    "business model": "how it makes money",
-    "team": "who builds it",
+# covered, not whether they are good. An event with its own list sets PITCH_TOPICS to a JSON object of
+# name to meaning, e.g. {"problem": "what hurts, and for whom", "go-to-market": "how it reaches buyers"}.
+PITCH_TOPICS: dict[str, str] = {
+    name.strip().lower(): meaning
+    for name, meaning in (
+        json.loads(os.getenv("PITCH_TOPICS") or "null")
+        or {
+            "problem": "what hurts, and for whom",
+            "solution": "what the product does",
+            "customer or market": "who buys it, or how many of them there are",
+            "alternatives": "competitors, or what people do today instead",
+            "business model": "how it makes money",
+            "team": "who builds it",
+        }
+    ).items()
 }
 # For the prompts: Gemma mixed up problem and solution when it was given the names alone
 TOPIC_GUIDE = "; ".join(f"{name} ({meaning})" for name, meaning in PITCH_TOPICS.items())
@@ -31,7 +41,8 @@ TOPIC_LEVELS = [
 
 def rate_topics(missing: list[str]) -> dict:
     """The topic coverage criterion, from the expected topics Gemma found nowhere; limits as in TOPIC_LEVELS."""
-    level = 4 if not missing else 3 if len(missing) == 1 else 2 if len(missing) <= 3 else 0 if len(missing) == len(PITCH_TOPICS) else 1
+    # All missing is checked first: an event's own list can be shorter than four topics
+    level = 4 if not missing else 0 if len(missing) == len(PITCH_TOPICS) else 3 if len(missing) == 1 else 2 if len(missing) <= 3 else 1
     reason = f"Not explained: {', '.join(missing)}." if missing else "Every expected topic is explained."
     return {"name": TOPIC_CRITERION, "reason": reason, "level": level}
 

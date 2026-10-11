@@ -102,7 +102,7 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
               hint="syllables per second of speaking, measured"
             />
           )}
-          <Stat label="Segments" value={String(segments.length)} hint="up to 30s each" />
+          <Stat label="Segments" value={String(segments.length)} hint="each one sent to Gemma on its own" />
           <Stat
             label="Filler words"
             value={String(result.filler_words.count)}
