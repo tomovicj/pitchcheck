@@ -6,6 +6,8 @@ Built for the GDG Belgrade DevFest hackathon, whose theme is "Reimagine the Even
 
 > **Status on 10 October 2026: work in progress.** The app accepts an audio or video recording. Gemma 4 E2B listens to it in segments of up to 30 seconds and returns a pitch score, insights and feedback. Slides are not accepted yet, and whether Gemma reliably hears tone and emotion has not been tested on real recordings. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
 
+The `frontend` branch adds a reference-inspired landing page and two upload cards. The recording card keeps the existing analysis flow. The deck card accepts PDFs up to 25 MB for browser-local selection and preview; PDFs are not submitted to Gemma yet, and slide scoring remains unimplemented. A centered "Check pitch + deck" button below the cards introduces the planned combined check: separate delivery and deck scores plus speech-to-slide alignment. It is marked coming soon and expands an explanation; it does not submit files for combined analysis. Design notes and component specifications are in `docs/research/`.
+
 ## Requirements
 
 These four are fixed.
@@ -83,6 +85,52 @@ docker compose up -d
 ```
 
 Images are tagged `latest` and `sha-<short commit>`; set `TAG=sha-abc1234` to run a specific build. Try Gemma on one clip with `docker compose exec audio python -m scripts.probe <file>` after copying the file into the container (`docker compose cp clip.wav audio:/tmp/clip.wav`).
+
+If the app does not start, check `docker compose ps -a` and
+`docker compose logs --tail=100 audio`. The web container waits for the audio
+service to become healthy. Older audio images can fail with
+`AnyToAnyPipeline requires the librosa library`; the dependency is now included
+in `services/audio/requirements.txt`. To repair a pulled image from this checkout:
+
+```bash
+docker compose build audio
+docker compose up -d --no-build --pull never
+```
+
+This keeps the downloaded model weights in the `models` volume. Pulling again
+replaces the local image, so use the repaired image until an updated image is
+published to the registry. Startup readiness confirms that Gemma loaded; it does
+not verify the quality or speed of pitch analysis.
+
+If analysis stays at **5% / Gemma is listening**, that percentage does not move
+until the first audio segment finishes. Check `docker compose logs -f audio`:
+the service logs the segment and the time for each Gemma call. `/health` also
+reports `analysis_running` and `model_devices`. Only one analysis runs at a time;
+another request receives HTTP 429 instead of competing for model memory.
+Generation logs report the time to the first output token, progress every 32
+output tokens, and the final token count. A long wait for the first token points
+to input processing; slow progress afterward points to text generation. These
+diagnostics log counts and timings, not the model's text or the recording.
+
+On a machine with enough available RAM, set `GEMMA_DEVICE_MAP=cpu` in `.env`
+and recreate the audio container with `docker compose up -d --no-build --pull never`.
+This keeps the full model in RAM instead of automatically offloading layers to
+disk. E2B has roughly 10.2 GB of weights and needs additional memory for inference;
+do not use this setting on a Docker VM with too little RAM. The default remains
+`auto` for other machines. Docker on this Mac runs CPU-only inference.
+
+A local diagnostic on an Apple M5 with 16 GB RAM and a Docker VM with 11.67 GiB
+used one second of silence and at most eight output tokens: automatic CPU/disk
+placement took 22.4 s; full CPU placement took 7.5 s. This is a short inference
+benchmark, not a delivery-quality test or an end-to-end pitch timing. Start with
+one short spoken clip and wait for it to finish before submitting another.
+
+On 11 October, a roughly 24-second spoken recording reached the scoring stage:
+the first Gemma audio call completed in 480 s and its JSON parsed on the first
+attempt. The browser advanced from 5% to 90%. This run overlapped an audio-image
+rebuild, so the timing includes competing build work. It confirms that waiting
+at 5% can be slow inference rather than a failed request; it does not establish
+delivery accuracy or a clean performance baseline.
 
 Without Docker, in two terminals:
 

@@ -52,10 +52,12 @@ Do this first. Requirement 3 rests on it, and the official documentation lists o
 
 ## 6. Interface
 
-- [ ] Two upload inputs: recording and deck.
+- [x] Two upload inputs: recording and PDF deck. Deck selection and preview are browser-local; submitting it for Gemma analysis remains in section 3.
+- [x] Centered pitch + deck button with a distinct visual treatment and an expandable explanation of the planned separate scores and speech-to-slide alignment. Marked coming soon until the combined analysis is implemented.
+- [x] Reference-inspired landing page, supplied logo and responsive upload workspace on the `frontend` branch.
 - [ ] Results view with both scores, insights, feedback, and the pitch-against-deck findings.
-- [ ] Keep the upload card's claims true as the pipeline changes. It currently says "For video, only the audio track is analyzed. Everything runs locally."
-- [ ] Draw arrows as SVG icons, not Unicode characters. `lucide-react` is already a dependency.
+- [x] Keep the upload cards' claims true: video analysis uses the audio track; PDF selection and preview are local to the browser, and slide scoring is marked coming soon.
+- [x] Draw arrows as SVG icons, not Unicode characters. Shared `lucide-react` SVG icons are used throughout the frontend.
 
 ## 7. Demo and pitch evidence
 

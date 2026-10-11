@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "pitchcheck",
-  description: "Local speech analysis for pitch recordings",
+  title: "PitchCheck — Your next pitch. Your best pitch.",
+  description: "Practice your pitch with Gemma-powered delivery feedback. Upload your recording and prepare your PDF pitch deck.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -26,7 +26,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <ThemeProvider attribute="class" forcedTheme="light" disableTransitionOnChange>
           {children}
         </ThemeProvider>
       </body>

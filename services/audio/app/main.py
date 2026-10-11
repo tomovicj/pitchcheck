@@ -1,6 +1,7 @@
 """Local pitch delivery analysis: signal measurements with Praat, judgement with Gemma."""
 
 import json
+import logging
 import os
 import queue
 import re
@@ -8,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
@@ -17,27 +19,36 @@ import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from transformers import AutoModelForMultimodalLM, AutoProcessor, GenerationConfig
+from transformers.generation.streamers import BaseStreamer
 
 SAMPLE_RATE = 16_000
 GEMMA_MODEL = os.getenv("GEMMA_MODEL", "google/gemma-4-E2B-it")
 # "auto" uses the checkpoint's dtype (bf16); GPUs without bf16, such as the T4, need float16
 GEMMA_DTYPE = os.getenv("GEMMA_DTYPE", "auto")
+# On CPU, "auto" offloads layers to disk when RAM looks short, which makes generation unusably slow,
+# so the default keeps everything in RAM there; the bf16 weights need about 10 GB for E2B.
+GEMMA_DEVICE_MAP = os.getenv("GEMMA_DEVICE_MAP") or ("auto" if torch.cuda.is_available() else "cpu")
 # Gemma accepts audio clips of at most 30 seconds
 MAX_SEGMENT_S = 30.0
 MIN_SEGMENT_S = 1.0
 PAUSE_THRESHOLD_S = 0.5
 
 models = {}
+analysis_lock = threading.Lock()
+logger = logging.getLogger("uvicorn.error")
 
 
 def load_models():
     # Processor and model directly, as in the Gemma 4 examples: the any-to-any pipeline
     # insists on librosa for audio even when it is given decoded arrays.
     models["processor"] = AutoProcessor.from_pretrained(GEMMA_MODEL)
-    # On CPU, "auto" offloads layers to disk when RAM looks short, which makes generation unusably slow.
-    # Load everything into RAM instead; the bf16 weights need about 10 GB for E2B.
-    device_map = "auto" if torch.cuda.is_available() else "cpu"
-    models["gemma"] = AutoModelForMultimodalLM.from_pretrained(GEMMA_MODEL, device_map=device_map, dtype=GEMMA_DTYPE)
+    model = AutoModelForMultimodalLM.from_pretrained(GEMMA_MODEL, device_map=GEMMA_DEVICE_MAP, dtype=GEMMA_DTYPE)
+    models["gemma"] = model
+    devices = set(getattr(model, "hf_device_map", {"": model.device}).values())
+    logger.info("Gemma model placement: %s", sorted(str(device) for device in devices))
+    if "disk" in devices:
+        logger.warning("Gemma weights are offloaded to disk; generation may take minutes per segment. "
+                       "If enough RAM is available, use GEMMA_DEVICE_MAP=cpu to keep weights in memory.")
     config = GenerationConfig.from_pretrained(GEMMA_MODEL)
     # Greedy decoding so the same recording gets the same scores
     config.do_sample = False
@@ -163,13 +174,38 @@ def parse_json(text: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+class GenerationTiming(BaseStreamer):
+    """Log progress without decoding or recording the speaker's content."""
+
+    def __init__(self):
+        self.started = time.monotonic()
+        self.prompt_received = False
+        self.tokens = 0
+        self.first_token_at = None
+
+    def put(self, value):
+        # generate() first sends the complete prompt, then generated tokens.
+        if not self.prompt_received:
+            self.prompt_received = True
+            return
+        self.tokens += value.numel()
+        if self.first_token_at is None:
+            self.first_token_at = time.monotonic()
+            logger.info("Gemma first output token after %.1fs", self.first_token_at - self.started)
+        if self.tokens % 32 == 0:
+            logger.info("Gemma generated %s tokens in %.1fs", self.tokens, time.monotonic() - self.started)
+
+    def end(self):
+        logger.info("Gemma generated %s tokens total in %.1fs", self.tokens, time.monotonic() - self.started)
+
+
 def generate(messages: list[dict]) -> str:
     processor, model = models["processor"], models["gemma"]
     inputs = processor.apply_chat_template(
         messages, tokenize=True, return_dict=True, return_tensors="pt", add_generation_prompt=True
     ).to(model.device, dtype=model.dtype)
     with torch.inference_mode():
-        output = model.generate(**inputs, generation_config=models["generation_config"])
+        output = model.generate(**inputs, generation_config=models["generation_config"], streamer=GenerationTiming())
     # Decode only the reply, not the prompt
     return processor.decode(output[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
 
@@ -180,7 +216,10 @@ def ask_gemma(content: list[dict]) -> tuple[dict | None, str]:
     for attempt in range(2):
         if attempt:
             content = [*content, {"type": "text", "text": "Your previous reply was not valid JSON. Return only the JSON object."}]
+        started = time.monotonic()
+        logger.info("Gemma generation started (attempt %s)", attempt + 1)
         raw = generate([{"role": "user", "content": content}])
+        logger.info("Gemma generation finished in %.1fs", time.monotonic() - started)
         if (parsed := parse_json(raw)) is not None:
             return parsed, raw
     return None, raw
@@ -285,6 +324,7 @@ def run_analysis(audio: np.ndarray, report: Callable[[str, float], None]) -> dic
     report("listening", 0.05)
     segments = []
     for n, (start, end) in enumerate(bounds, start=1):
+        logger.info("Listening to segment %s/%s (%s-%s)", n, len(bounds), format_time(start), format_time(end))
         clip = audio[int(start * SAMPLE_RATE) : int(end * SAMPLE_RATE)]
         measurements = measure(clip)
         pause_ratio = round(sum(inner_pauses(silences, start, end)) / (end - start), 2)
@@ -326,18 +366,35 @@ def load_upload(file: UploadFile | None) -> np.ndarray:
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    model = models.get("gemma")
+    placement = getattr(model, "hf_device_map", {"": str(model.device)} if model is not None else {})
+    return {"status": "ok", "analysis_running": analysis_lock.locked(),
+            "model_devices": sorted({str(device) for device in placement.values()})}
+
+
+def reserve_analysis():
+    if not analysis_lock.acquire(blocking=False):
+        raise HTTPException(429, "An analysis is already running. Wait for it to finish before starting another.")
 
 
 @app.post("/analyze")
 def analyze(file: UploadFile | None = File(None)):
-    return run_analysis(load_upload(file), lambda *_: None)
+    reserve_analysis()
+    try:
+        return run_analysis(load_upload(file), lambda *_: None)
+    finally:
+        analysis_lock.release()
 
 
 @app.post("/analyze/stream")
 def analyze_stream(file: UploadFile | None = File(None)):
     """Same as /analyze, but streams NDJSON progress events before the result."""
-    audio = load_upload(file)
+    reserve_analysis()
+    try:
+        audio = load_upload(file)
+    except BaseException:
+        analysis_lock.release()
+        raise
     events = queue.Queue()
 
     def work():
@@ -351,6 +408,7 @@ def analyze_stream(file: UploadFile | None = File(None)):
             events.put({"type": "error", "message": "Analysis failed"})
             raise
         finally:
+            analysis_lock.release()
             events.put(None)
 
     def stream():
