@@ -54,6 +54,7 @@ EVEN_PITCH_SEMITONES = 2.0  # a segment whose pitch varies by less than this (st
 QUIET_BELOW_MEAN_DB = 6.0  # a segment this much quieter than the whole recording counts as quiet
 UNEVEN_LOUDNESS_DB = 9.0  # a segment whose loudness varies by more than this (std) counts as uneven
 MAX_DECK_BYTES = 50 * 2**20
+KEEPALIVE_S = 15  # seconds without a progress event before a stream sends a blank line
 
 # Rated in code: the level is arithmetic on a count or a share, and Gemma did not apply numeric limits
 # reliably when asked to. It called 5.7 filler words a minute "5 or fewer", and a pitch with two
@@ -782,7 +783,16 @@ def stream(job: Callable[[Callable[[str, float], None]], dict]) -> StreamingResp
 
     def lines():
         threading.Thread(target=work, daemon=True).start()
-        while (event := events.get()) is not None:
+        while True:
+            try:
+                event = events.get(timeout=KEEPALIVE_S)
+            except queue.Empty:
+                # A Cloudflare tunnel closes a response that sends nothing for 100 s, and one Gemma
+                # call (the comparison at the end of a check) can take longer. Clients skip blank lines.
+                yield "\n"
+                continue
+            if event is None:
+                return
             yield json.dumps(event) + "\n"
 
     return StreamingResponse(lines(), media_type="application/x-ndjson")
