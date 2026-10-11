@@ -8,7 +8,8 @@ Each has a working assumption so the build is not blocked. Change the assumption
 
 - [ ] **May any non-Gemma model stay?** Assumed no: Whisper and the wav2vec2 emotion classifier leave the analysis path. Praat signal measurements stay, because they are measurements and not an AI model.
 - [ ] **What does "no transcript" rule out?** Assumed: a transcript is never the basis for the pitch score. Open: whether the UI may still show the text of what was said.
-- [ ] **Score scale and rubric.** Proposed: 0 to 100 for the slides and 0 to 100 for the pitch, each built from per-criterion sub-scores against a fixed rubric.
+- [ ] **Score scale and rubric.** Working choice for the pitch: six criteria on levels 0 to 4 with a description per level, shown as 0 to 100 in steps of 5 with equal weights (`RUBRIC` in `services/audio/app/main.py`). Gemma gives five of the levels; the filler word level follows from the count it heard. Proposed for the slides: the same scheme.
+- [x] **Emotion labels.** Working decision, 11 October 2026: the product describes how the delivery sounds (pace, pauses, filler words, pitch, loudness) and does not label the speaker's emotions or state of mind. Gemma's ability to hear emotion is undocumented, the EU AI Act restricts inferring emotion from the voice, and such labels carry bias. Reopen here if the team wants emotion labels back.
 - [ ] **Slide formats.** Proposed: PDF only for the demo. PPTX needs a conversion step.
 - [ ] **Where the demo runs.** Participant laptop or one organizer-style server, and whether that machine has a GPU.
 
@@ -18,17 +19,17 @@ Do this first. Requirement 3 rests on it, and the official documentation lists o
 
 - [x] Get one audio clip through Gemma. Implemented with the documented `any-to-any` Transformers pipeline; numpy arrays are passed directly. Not yet run on the demo machine. Transformers has the only official audio example (`AutoProcessor` with `AutoModelForMultimodalLM`), and `services/audio` already depends on `transformers` and `torch`. Ollama audio support is reported by third parties only; verify it before relying on it.
 - [ ] Choose the variant: Gemma 4 E2B, E4B or 12B Unified. E2B is the default (`GEMMA_MODEL`); still to measure load time, memory use and compute time per 30-second clip on the demo machine. `requirements.txt` currently pulls CPU-only torch wheels.
-- [ ] Record the same 20 to 30 second script three ways: flat, energetic, rushed and nervous. Run `python -m scripts.probe <file>` from `services/audio` on each (or `docker compose exec audio python -m scripts.probe <file>` with the file copied into the container). Ask Gemma to describe tone, emotion and energy for each. The answers must differ and must match what a listener hears.
+- [ ] Record the same 20 to 30 second script three ways: flat, energetic, rushed and nervous. Run `python -m scripts.probe <file> --audio-only` from `services/audio` on each (or `docker compose exec audio python -m scripts.probe <file> --audio-only` with the file copied into the container), then again without the flag. The `tone` and `pace` answers must differ between the recordings and match what a listener hears. If they do so only when the measurements are in the prompt, the description comes from the measurements and not from what Gemma hears.
 - [ ] If the answers do not track the delivery, tune how the measurements are described in the prompt and repeat the test. The per-segment measurements (pitch variation, loudness variation, pause ratio) are already sent alongside the audio.
 - [ ] Write down what was tried and what happened. The jury asks for one real implementation problem and how it was solved.
 
 ## 2. Pitch analysis
 
 - [x] Split the decoded audio into segments of at most 30 seconds, cutting at pauses so words are not split.
-- [x] Per segment, call Gemma with the audio and its measurements. Get JSON back: tone, emotion, energy, pace, filler words heard, topics covered.
+- [x] Per segment, call Gemma with the audio and its measurements. Get JSON back: tone of voice, pace, filler words heard, topics covered.
 - [x] Compute pauses from the signal (intensity and voicing) instead of from Whisper word timestamps.
 - [x] Remove `faster-whisper` and the wav2vec2 pipeline from `services/audio/app/main.py` and `requirements.txt`, the `WHISPER_MODEL` and `EMOTION_MODEL` variables from `docker-compose.yml`, and the Transcript and Emotion cards from `src/components/audio-analyzer.tsx`.
-- [x] Combine the segment results into the pitch score, insights and feedback. Keep timestamps so feedback can point at a moment in the recording. The rubric in the prompt is provisional until section 5.
+- [x] Combine the segment results into the pitch score, insights and feedback. Keep timestamps so feedback can point at a moment in the recording. The rubric is `RUBRIC` in `services/audio/app/main.py`; see section 5.
 - [x] Update `AnalysisStage` in `src/lib/analysis.ts` and the stage labels in the UI to match the new steps.
 
 ## 3. Slide analysis
@@ -45,10 +46,14 @@ Do this first. Requirement 3 rests on it, and the official documentation lists o
 
 ## 5. Scoring
 
-- [ ] Write the rubric for the slides and the rubric for the pitch: the criteria and what each level means. The hackathon's own Delivery criteria are a possible starting point.
-- [ ] Fix a JSON schema for the result. Validate the model output and retry when it does not parse. Parsing and one retry exist; field-level validation does not.
+- [x] Write the rubric for the pitch: six criteria with a description for each level from 0 to 4. The 0 to 100 score is computed from the levels.
+- [ ] Try the pitch rubric on real recordings and adjust the level descriptions. Only the filler word levels rest on research; the rest are conventions. There is no time-limit criterion yet, because the app has no place to enter the event's limit.
+- [ ] Decide whether code should also give the levels for pauses, pitch variation and loudness from the measurements. On one synthetic clip Gemma's levels for these moved between runs while the measurements stayed the same. It needs numeric limits, and none of them has a validated source.
+- [ ] Write the rubric for the slides the same way. The hackathon's own Delivery criteria are a possible starting point.
+- [ ] Fix a JSON schema for the result. Validate the model output and retry when it does not parse. Parsing, one retry and validation of the criterion levels exist; the other fields are not validated.
 - [ ] Make scores repeatable: use greedy decoding and fixed prompts, then run the same input three times and compare.
-- [ ] State in the UI that the scores rate the deck and the delivery, not the business idea.
+- [x] State in the UI that the pitch score rates the delivery, not the business idea. The results card also says what is measured, that the score is not validated, and that it can be less accurate for some speakers.
+- [ ] Say the same for the slide score once it exists.
 
 ## 6. Interface
 
@@ -67,7 +72,7 @@ These map to the jury's Technology criteria.
 - [ ] One implementation problem and its fix. A candidate already in the code: `fetch` buffered large video uploads in memory, so `src/app/api/analyze/route.ts` streams them with `node:http`. The Gemma audio test in section 1 may give a better one.
 - [ ] Record a full run on real material as a fallback for the live demo.
 - [ ] Measure what one machine handles (analysis time per pitch, concurrent analyses) so the scalability answer is based on numbers.
-- [ ] Claim only what the build does. "Gemma recognizes emotion in the voice" goes in the pitch only if section 1 confirms it.
+- [ ] Claim only what the build does. "Gemma hears tone of voice" goes in the pitch only if section 1 confirms it. Do not claim emotion recognition: the product does not label emotions.
 
 ## Later
 

@@ -4,7 +4,7 @@ PitchCheck gives hackathon and startup teams feedback on a pitch before a human 
 
 Built for the GDG Belgrade DevFest hackathon, whose theme is "Reimagine the Event Experience with Gemma".
 
-> **Status on 10 October 2026: work in progress.** The app accepts an audio or video recording. Gemma 4 E2B listens to it in segments of up to 30 seconds and returns a pitch score, insights and feedback. Slides are not accepted yet, and whether Gemma reliably hears tone and emotion has not been tested on real recordings. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
+> **Status on 10 October 2026: work in progress.** The app accepts an audio or video recording. Gemma 4 E2B listens to it in segments of up to 30 seconds and returns a pitch score, insights and feedback. Slides are not accepted yet, and whether Gemma reliably hears tone of voice has not been tested on real recordings. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
 
 The `frontend` branch adds a reference-inspired landing page and two upload cards. The recording card keeps the existing analysis flow. The deck card accepts PDFs up to 25 MB for browser-local selection and preview; PDFs are not submitted to Gemma yet, and slide scoring remains unimplemented. A centered "Check pitch + deck" button below the cards introduces the planned combined check: separate delivery and deck scores plus speech-to-slide alignment. It is marked coming soon and expands an explanation; it does not submit files for combined analysis. Design notes and component specifications are in `docs/research/`.
 
@@ -14,7 +14,7 @@ These four are fixed.
 
 1. **Input is a pitch video and the slide deck.**
 2. **Gemma does the analysis.** Every score and every piece of feedback comes from a Gemma model.
-3. **The pitch is judged from its sound, not from a transcript.** Tone, emotion, energy and pacing live in the audio signal, and a transcript drops them. The audio itself goes into the model.
+3. **The pitch is judged from its sound, not from a transcript.** Tone, emotion, energy and pacing live in the audio signal, and a transcript drops them. The audio itself goes into the model. The feedback describes how the delivery sounds (pace, pauses, filler words, pitch, loudness); it does not label the speaker's emotions or state of mind.
 4. **Output is two scores plus guidance:** a score for the slides, a score for the pitch, insights (what the analysis found) and feedback (what to change).
 
 The scores describe the deck and the delivery. They do not rate the business idea or its investment potential.
@@ -30,13 +30,15 @@ Read from the code after the Gemma audio change (the commit following `a0a917e`)
 | Pitch and loudness variation, measured from the signal with Praat | Implemented; sent to Gemma as supporting evidence |
 | Pauses, measured from the signal with Praat | Implemented |
 | Splitting the audio into segments of at most 30 seconds, cut at pauses | Implemented |
-| Gemma 4 E2B listens to each segment: tone, emotion, energy, pace, filler words, topics | Implemented; not yet validated on real recordings (TODO section 1) |
-| Score for the pitch with per-criterion sub-scores, insights and timestamped feedback | Implemented; rubric is provisional |
+| Gemma 4 E2B listens to each segment: tone of voice, pace, filler words, and which of the expected pitch topics it explains | Implemented; not yet validated on real recordings (TODO section 1) |
+| Pitch score from six rubric criteria (pace, filler words, pauses, pitch variation, loudness, completeness and structure) on levels 0 to 4, with the expected topics no segment explained, insights and timestamped feedback | Implemented; the rubric (`RUBRIC` in `services/audio/app/main.py`) has not been tried on real recordings |
 | Slide deck upload and analysis | Not started |
 | Score for the slides | Not started |
 | Check that the spoken pitch matches the deck | Not started |
 
-Whisper and the wav2vec2 emotion classifier have been removed. Every score and every piece of feedback now comes from Gemma; Praat supplies measurements only.
+Whisper and the wav2vec2 emotion classifier have been removed. Every judgement and every piece of feedback now comes from Gemma; Praat supplies measurements only. Gemma gives the level for five criteria against the described levels. The filler word level follows from the number of filler words Gemma heard, by fixed limits, because Gemma did not apply numeric limits reliably when asked to. The 0 to 100 pitch score is arithmetic over the levels (equal weights, steps of 5), so the same levels always give the same score.
+
+The rubric rates what can be heard or measured. Only the filler word levels rest on research (one study, in English); the other levels are conventions. It has no criterion for emotion, confidence, accent or pronunciation, and the results card says so.
 
 ## Planned pipeline
 
@@ -45,7 +47,7 @@ Steps 2 to 4 and the pitch half of step 7 are built. The rest is the working pla
 1. The team uploads the pitch video and the deck.
 2. ffmpeg extracts the audio track as 16 kHz mono. This step exists today.
 3. The audio is split into segments of at most 30 seconds, because that is the longest clip Gemma accepts.
-4. For each segment, Gemma receives the audio together with signal measurements for that segment (pitch variation, loudness variation, pauses). It returns structured observations about delivery (tone, emotion, energy, pace, filler words) and the topics covered.
+4. For each segment, Gemma receives the audio together with signal measurements for that segment (pitch variation, loudness variation, pauses). It returns structured observations about delivery (tone of voice, pace, filler words) and the topics covered.
 5. Deck pages are rendered to images. Gemma reads them for structure, clarity, legibility, and topics covered or missing against the rubric.
 6. Gemma compares what was said with what is on the slides: deck topics the speaker never explained, and statements that contradict the slides. Summarizing a slide or adding explanation is not an error.
 7. Gemma turns the observations into the slide score, the pitch score, insights and feedback.
@@ -84,7 +86,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Images are tagged `latest` and `sha-<short commit>`; set `TAG=sha-abc1234` to run a specific build. Try Gemma on one clip with `docker compose exec audio python -m scripts.probe <file>` after copying the file into the container (`docker compose cp clip.wav audio:/tmp/clip.wav`).
+Images are tagged `latest` and `sha-<short commit>`; set `TAG=sha-abc1234` to run a specific build. Try Gemma on one clip with `docker compose exec audio python -m scripts.probe <file>` after copying the file into the container (`docker compose cp clip.wav audio:/tmp/clip.wav`). Add `--audio-only` to leave the signal measurements out of the prompt and see what Gemma hears on its own.
 
 If the app does not start, check `docker compose ps -a` and
 `docker compose logs --tail=100 audio`. The web container waits for the audio
@@ -163,7 +165,7 @@ AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
 | `src/app/api/analyze/route.ts` | Streams the upload to the audio service and relays its progress events |
 | `src/lib/analysis.ts` | Types for the analysis result and progress events |
 | `services/audio/app/main.py` | FastAPI service: decodes the file, measures it, splits it, and runs Gemma per segment and for the score |
-| `services/audio/scripts/probe.py` | Runs the per-segment Gemma prompt on one clip of 30 s or less, for testing what Gemma hears |
+| `services/audio/scripts/probe.py` | Runs the per-segment Gemma prompt on one clip of 30 s or less, with or without the signal measurements, for testing what Gemma hears |
 | `services/audio/scripts/smoke_test.py` | Runs the service end to end with a tiny random Gemma 4; CI runs it in the audio image before tagging |
 | `docker-compose.yml` | The `web` and `audio` services |
 | `notebooks/kaggle.ipynb` | Runs the audio service on a Kaggle GPU behind a Cloudflare tunnel |

@@ -5,7 +5,7 @@ Product requirements and the current state of the build are in [README.md](READM
 Fixed requirements:
 
 - Every score and every piece of feedback comes from a Gemma model. Do not add another AI model to the analysis path. `faster-whisper` and the wav2vec2 emotion classifier in `services/audio` predate this rule and are scheduled for removal.
-- The pitch is analyzed from the audio signal itself, so that tone and emotion count. A transcript is never the only input for judging delivery.
+- The pitch is analyzed from the audio signal itself, so that tone of voice and delivery count. A transcript is never the only input for judging delivery. Prompts and UI describe how the delivery sounds; they do not label the speaker's emotions or state of mind (working decision, 11 October 2026; see TODO.md).
 - Input is a pitch video plus the slide deck. Output is a score for the slides, a score for the pitch, insights, and feedback for improvement.
 - Scores rate the deck and the delivery, never the business idea.
 

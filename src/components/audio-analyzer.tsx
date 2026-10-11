@@ -194,7 +194,7 @@ function Results({ result }: { result: AudioAnalysis }) {
         <CardHeader>
           <CardTitle>Pitch score</CardTitle>
           <CardDescription>
-            Scored by {result.model} from the audio. Scores rate the delivery, not the business idea.
+            Rated by {result.model} from the audio, against a fixed rubric with levels from 0 to 4.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
@@ -212,15 +212,21 @@ function Results({ result }: { result: AudioAnalysis }) {
                     <div key={c.name} className="flex flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                         <span className="w-full text-sm sm:w-32 sm:shrink-0">{c.name}</span>
-                        <Progress value={c.score} className="flex-1" />
+                        <Progress value={c.level * 25} className="flex-1" />
                         <span className="text-muted-foreground w-10 text-right text-sm tabular-nums">
-                          {Math.round(c.score)}
+                          {c.level}/4
                         </span>
                       </div>
                       {c.reason && <p className="text-muted-foreground text-xs">{c.reason}</p>}
                     </div>
                   ))}
                 </div>
+              )}
+              {!!summary.missing_topics?.length && (
+                <p className="text-sm">
+                  <span className="font-medium">Expected topics not explained:</span>{" "}
+                  {summary.missing_topics.join(", ")}
+                </p>
               )}
               {!!summary.insights?.length && (
                 <div className="flex flex-col gap-2">
@@ -255,6 +261,22 @@ function Results({ result }: { result: AudioAnalysis }) {
               Gemma did not return a usable score for this recording.
             </p>
           )}
+          <ul className="text-muted-foreground flex list-disc flex-col gap-1 border-t pt-4 pl-5 text-xs">
+            <li>
+              The score rates how the pitch is delivered. It does not rate the business idea, its
+              investment potential or the speaker&apos;s emotions.
+            </li>
+            <li>
+              Pauses, pitch and loudness are measured from the signal with Praat. Pace, filler words
+              and topics are what Gemma hears. Only the filler word levels rest on research (one
+              study, in English); the other levels are conventions.
+            </li>
+            <li>The score has not been validated against jury decisions or funding outcomes.</li>
+            <li>
+              It can be less accurate for speakers with an accent, non-native speakers and people
+              with speech differences.
+            </li>
+          </ul>
         </CardContent>
       </Card>
 
@@ -276,6 +298,11 @@ function Results({ result }: { result: AudioAnalysis }) {
             hint="of the time between first and last word"
           />
           <Stat label="Segments" value={String(segments.length)} hint="up to 30s each" />
+          <Stat
+            label="Filler words"
+            value={String(result.filler_words.count)}
+            hint={`${result.filler_words.per_minute} per minute, as heard by Gemma`}
+          />
         </CardContent>
       </Card>
 
@@ -324,8 +351,6 @@ function Results({ result }: { result: AudioAnalysis }) {
                   <span className="text-sm font-medium tabular-nums">
                     {formatTime(segment.start_s)}–{formatTime(segment.end_s)}
                   </span>
-                  {o?.emotion && <Badge variant="outline" className="capitalize">{o.emotion}</Badge>}
-                  {o?.energy && <Badge variant="outline">{o.energy} energy</Badge>}
                   {o?.pace && <Badge variant="outline">{o.pace} pace</Badge>}
                 </div>
                 {o ? (

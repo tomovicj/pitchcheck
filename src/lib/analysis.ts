@@ -21,8 +21,6 @@ export type PauseAnalysis = {
 // What Gemma reports after listening to one segment
 export type SegmentObservation = {
   tone?: string;
-  emotion?: string;
-  energy?: "low" | "medium" | "high";
   pace?: "slow" | "conversational" | "fast";
   filler_words?: string[];
   topics?: string[];
@@ -40,8 +38,12 @@ export type Segment = {
 };
 
 export type PitchSummary = {
-  pitch_score?: number;
-  criteria?: { name: string; score: number; reason?: string }[];
+  // 0-100 in steps of 5, computed from the criterion levels; null when no criterion got a valid level
+  pitch_score?: number | null;
+  // Rubric level from 0 to 4: given by Gemma, except filler words, which follow from the count it heard
+  criteria?: { name: string; level: number; reason?: string }[];
+  // Expected pitch topics that Gemma did not find in any segment
+  missing_topics?: string[];
   insights?: string[];
   feedback?: { at_s: number | null; text: string }[];
 };
@@ -51,6 +53,8 @@ export type AudioAnalysis = {
   model: string;
   prosody: ProsodyAnalysis | null;
   pauses: PauseAnalysis;
+  // Counted from the filler words Gemma heard in each segment
+  filler_words: { count: number; per_minute: number };
   segments: Segment[];
   summary: PitchSummary | null;
 };
