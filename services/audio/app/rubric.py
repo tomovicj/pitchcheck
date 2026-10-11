@@ -150,13 +150,19 @@ class Unit(NamedTuple):
 #   the slide about how organizers work today "solution" in one run and "traction" in the next. A slide
 #   is labelled as a whole, with its title and its point, which is how Gemma placed the topics on this
 #   deck correctly in the first version of the rubric.
+# - With a label for each slide, six of the eight came out right, and Gemma wrote "none" for the title
+#   slide and for the slide about how organizers work today (its reply is kept since then, so this is
+#   what it wrote, not a label code could not read). Those two have a title that names no topic, and
+#   the line for "none" took any unit "that fits no line above". What "none" is for and the advice
+#   under the labels are now worded for a deck and for a talk apart (none and advice in SPEECH and
+#   deck.SLIDES); the wording for a talk is the one that labelled the spoken pitch correctly.
 LABEL_PROMPT = """You are sorting the {unit}s of a {kind} by what each one tells the audience. Sort only; do not judge the business idea.
 
 Give every {unit} one label: the line below that describes what it is about, or "none".
 {checklist}
-- none: a greeting, a thank-you, a question, a bare heading such as "Our team", or a {unit} that fits no line above
+- none: {none}
 
-A {unit} gets a label for what it says itself, not for what the {unit}s around it say. A {unit} about how things are today, without the product, is the problem, even when it stands between {unit}s about the product. When a {unit} fits two labels, give the one it is mostly about.
+{advice}
 
 An example, from another company:
 {example}
@@ -211,7 +217,7 @@ def run_checklist(
     """Ask Gemma to label each unit with the item of CHECKLIST it says, and turn the labels into a checklist.
 
     A unit is a statement of the speaker or a slide. wording names them for the prompt: kind, heard,
-    unit and example. number is what counts as a number in a line. What counts for an item is always
+    unit, none, advice and example. number is what counts as a number in a line. What counts for an item is always
     something Gemma heard or read, never words made up for the answer.
 
     The checklist has a line for each item: whether a unit says it, lines of it, and the place of the

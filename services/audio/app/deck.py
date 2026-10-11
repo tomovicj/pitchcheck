@@ -509,10 +509,19 @@ def slide_unit(slide: dict) -> rubric.Unit:
 
 
 # How the labelling prompt names a deck; see rubric.LABEL_PROMPT. A slide is labelled as a whole.
+# With the wording for a talk, Gemma wrote "none" for a title slide and for a slide about how things are
+# today: their titles name no topic. A slide that fits no topic is now pushed towards the closest one.
 SLIDES = {
     "kind": "startup pitch deck",
     "heard": "What each slide shows, in order, as you read it: its title, its point, and its lines",
     "unit": "slide",
+    "none": "a slide that only closes the deck: a thank-you, questions, contact details",
+    "advice": "Go by the whole slide, its point and its lines, not by its title alone. Nearly every slide of a deck "
+              'fits one of the lines above, so give the closest one and keep "none" for a slide that only closes the '
+              'deck. A first slide that names the company and says in a line what it makes is "what it does". '
+              "A slide about how things are today, without the product, is the problem: what people do now, how long "
+              "it takes, what they wait for. It is the problem even when it does not use the word, and even when it "
+              "stands between slides about the product. When a slide fits two labels, give the one it is mostly about.",
     "example": rubric.example([
         (slide_text("Velo", "Velo unlocks city bikes from a phone.", ["Unlock any city bike in ten seconds"]), rubric.OPENING),
         (slide_text("Renting a bike takes twenty minutes", "Renting a bike is slow today.",

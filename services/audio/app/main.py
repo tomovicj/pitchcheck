@@ -470,6 +470,10 @@ SPEECH = {
     "kind": "spoken startup pitch",
     "heard": "What the speaker said, in order, as you heard it",
     "unit": "statement",
+    "none": 'a greeting, a thank-you, a question, a bare heading such as "Our team", or a statement that fits no line above',
+    "advice": "A statement gets a label for what it says itself, not for what the statements around it say. "
+              "A statement about how things are today, without the product, is the problem, even when it stands "
+              "between statements about the product. When a statement fits two labels, give the one it is mostly about.",
     "example": rubric.STATEMENT_EXAMPLE,
 }
 
