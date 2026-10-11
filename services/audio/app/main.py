@@ -633,7 +633,7 @@ def score_pitch(
     # Without a single parsed segment there is no filler count to rate and nothing to check for content
     if any(s["observations"] for s in segments):
         rated[FILLER_CRITERION] = rate_fillers(fillers)
-    checklist, labelled = rubric.run_checklist(
+    checklist, labelled, replies = rubric.run_checklist(
         ask_gemma,
         [
             rubric.Unit(statement, {"at_s": s["start_s"]}, [statement], f"From {span(s)}:")
@@ -673,6 +673,8 @@ def score_pitch(
         "checklist": checklist or [],
         # Every statement with the label Gemma gave it, for checking the labels; its replies when they could not be used
         "labelled": labelled,
+        # What Gemma replied to the labelling prompt, as it wrote it: a label that code cannot read shows as none above
+        "label_replies": replies,
         "insights": rubric.strings(reply.get("insights"), 5),
         "feedback": rubric.feedback(reply, weak, "at_s", (int, float), MAX_FEEDBACK),
     }

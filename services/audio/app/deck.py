@@ -560,7 +560,7 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
     texts holds the text of each page in the file, by slide number.
     """
     rated = rate_design(slides, page_count)
-    checklist, labelled = rubric.run_checklist(
+    checklist, labelled, replies = rubric.run_checklist(
         ask,
         [slide_unit(s) for s in slides if s["observations"]],
         # A slide gives its numbers as figures; "two developers" on a team slide is not one
@@ -585,6 +585,8 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
         "checklist": checklist or [],
         # Every line with the label Gemma gave it, for checking the labels; its replies when they could not be used
         "labelled": labelled,
+        # What Gemma replied to the labelling prompt, as it wrote it: a label that code cannot read shows as none above
+        "label_replies": replies,
         "insights": [],
         "feedback": [],
     }

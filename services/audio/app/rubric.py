@@ -207,7 +207,7 @@ def label_of(value: object) -> str | None:
 
 def run_checklist(
     ask: Ask, units: list[Unit], number: re.Pattern = NUMBER, **wording: str
-) -> tuple[list[dict] | None, list]:
+) -> tuple[list[dict] | None, list, list[str]]:
     """Ask Gemma to label each unit with the item of CHECKLIST it says, and turn the labels into a checklist.
 
     A unit is a statement of the speaker or a slide. wording names them for the prompt: kind, heard,
@@ -219,6 +219,9 @@ def run_checklist(
     comes every unit and its label, for checking the labels. The checklist is None when there is
     nothing to label or no unit got a label: a reply that cannot be used must not count as a pitch that
     says nothing. What Gemma replied comes back in its place.
+
+    Last comes what Gemma replied, as it wrote it. A label that code cannot read and a unit the reply
+    leaves out both come out as none, and only the reply tells them from a none that Gemma gave.
     """
     labels, replies = {}, []
     for start in range(0, len(units), UNITS_PER_CALL):
@@ -239,7 +242,7 @@ def run_checklist(
             if found and int(found.group()) in batch and (label := label_of(value)):
                 labels[int(found.group())] = label
     if not labels:
-        return None, replies
+        return None, replies, replies
 
     said = {item: [n for n in sorted(labels) if labels[n] == item] for item in CHECKLIST}
     if "solution" in PITCH_TOPICS:
@@ -267,7 +270,7 @@ def run_checklist(
             entry["number"] = bool(with_number)
         checklist.append(entry)
     labelled = [{"statement": unit.text, "label": labels.get(n, "none"), **unit.where} for n, unit in enumerate(units, start=1)]
-    return checklist, labelled
+    return checklist, labelled, replies
 
 
 def rate_topics(checklist: list[dict]) -> dict:
