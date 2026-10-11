@@ -8,6 +8,8 @@ export type ProsodyAnalysis = {
   voiced_ratio: number;
   intensity_mean_db: number;
   intensity_std_db: number;
+  // Syllables per second of speaking, counted from the signal; null for a clip too short to measure
+  syllable_rate: number | null;
 };
 
 export type PauseAnalysis = {
@@ -15,6 +17,8 @@ export type PauseAnalysis = {
   total_pause_s: number;
   mean_pause_s: number;
   longest_pause_s: number;
+  // Pauses longer than 2 seconds; the Pauses criterion is rated on how many there are per minute
+  long_pause_count: number;
   speaking_ratio: number;
   // From the first sound to the last; the Time criterion is rated on it
   spoken_s: number;
@@ -23,7 +27,6 @@ export type PauseAnalysis = {
 // What Gemma reports after listening to one segment
 export type SegmentObservation = {
   tone?: string;
-  pace?: "slow" | "conversational" | "fast";
   filler_words?: string[];
   topics?: string[];
   // Short statements of what the speaker says, used to compare the speech with the deck
@@ -46,6 +49,8 @@ export type Segment = {
   end_s: number;
   measurements: ProsodyAnalysis | null;
   pause_ratio: number;
+  // From the measured speaking rate, not from what Gemma hears; null when it was not measured
+  pace: "slow" | "conversational" | "fast" | null;
   // null when Gemma's reply did not parse; raw holds the reply then
   observations: SegmentObservation | null;
   raw?: string;
@@ -54,7 +59,7 @@ export type Segment = {
 export type PitchSummary = {
   // 0-100 in steps of 5, computed from the criterion levels; null when no criterion got a valid level
   pitch_score?: number | null;
-  // Levels given by Gemma, except filler words, which follow from the count it heard
+  // Gemma gives the level for structure; the rest follow from the signal and from counts of what it heard
   criteria?: Criterion[];
   // Expected pitch topics that Gemma did not find in any segment
   missing_topics?: string[];
@@ -102,6 +107,8 @@ export type SlideObservation = {
 
 export type Slide = {
   number: number;
+  // A small JPEG of the page, as a data URL
+  thumbnail?: string;
   // null for a page without a text layer
   measurements: SlideMeasurements | null;
   // null when Gemma's reply did not parse; raw holds the reply then

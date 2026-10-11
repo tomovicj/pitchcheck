@@ -145,24 +145,35 @@ export function DeckResults({ result }: { result: DeckAnalysis }) {
           {slides.map((slide) => {
             const o = slide.observations;
             return (
-              <div key={slide.number} className="flex flex-col gap-1.5 border-b pb-4 last:border-0 last:pb-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium tabular-nums">Slide {slide.number}</span>
-                  {o?.title && <span className="text-sm">{o.title}</span>}
-                  {slideFlags(slide).map((flag) => (
-                    <Badge key={flag} variant="outline">
-                      {flag}
-                    </Badge>
-                  ))}
-                </div>
-                {o ? (
-                  <>
-                    {o.message && <p className="text-muted-foreground text-xs">Point: {o.message}</p>}
-                    {o.observations && <p className="text-sm">{o.observations}</p>}
-                  </>
-                ) : (
-                  <p className="text-muted-foreground text-sm">Gemma&apos;s reply for this slide did not parse.</p>
+              <div key={slide.number} className="flex items-start gap-4 border-b pb-4 last:border-0 last:pb-0">
+                {slide.thumbnail && (
+                  // A data URL made by the analysis service: there is nothing for next/image to optimise
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={slide.thumbnail}
+                    alt={`Slide ${slide.number}`}
+                    className="h-auto w-24 shrink-0 rounded-md border sm:w-36"
+                  />
                 )}
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium tabular-nums">Slide {slide.number}</span>
+                    {o?.title && <span className="text-sm">{o.title}</span>}
+                    {slideFlags(slide).map((flag) => (
+                      <Badge key={flag} variant="outline">
+                        {flag}
+                      </Badge>
+                    ))}
+                  </div>
+                  {o ? (
+                    <>
+                      {o.message && <p className="text-muted-foreground text-xs">Point: {o.message}</p>}
+                      {o.observations && <p className="text-sm">{o.observations}</p>}
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground text-sm">Gemma&apos;s reply for this slide did not parse.</p>
+                  )}
+                </div>
               </div>
             );
           })}

@@ -11,7 +11,8 @@ import { DeckResults } from "@/components/deck-results";
 import { DeckUploader } from "@/components/deck-uploader";
 import { PitchResults } from "@/components/pitch-results";
 import { VerdictCard } from "@/components/verdict-card";
-import type { Alignment, AudioAnalysis, DeckAnalysis, PitchCheck } from "@/lib/analysis";
+import type { AudioAnalysis, DeckAnalysis, PitchCheck } from "@/lib/analysis";
+import { showResults, useResults } from "@/lib/results-store";
 import { runAnalysis } from "@/lib/run-analysis";
 
 type JobKind = "pitch" | "deck" | "check";
@@ -27,16 +28,16 @@ export function PitchWorkspace() {
   const [timeLimit, setTimeLimit] = useState("");
   const [job, setJob] = useState<Job | null>(null);
   const [errors, setErrors] = useState<Partial<Record<JobKind, string>>>({});
-  const [pitch, setPitch] = useState<AudioAnalysis | null>(null);
-  const [slides, setSlides] = useState<DeckAnalysis | null>(null);
-  // undefined until a combined check has run; null when it ran and the two could not be compared
-  const [alignment, setAlignment] = useState<Alignment | null | undefined>(undefined);
+  const results = useResults();
+  const show = showResults;
 
   async function run<Result>(kind: JobKind, endpoint: string, body: FormData, onResult: (result: Result) => void) {
     setJob({ kind, stage: "uploading", progress: 0 });
     setErrors({});
     try {
       onResult(await runAnalysis<Result>(endpoint, body, (stage, progress) => setJob({ kind, stage, progress })));
+      // The results render below the cards, out of sight after a long wait
+      requestAnimationFrame(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (e) {
       setErrors({ [kind]: e instanceof Error ? e.message : "Analysis failed" });
     } finally {
@@ -54,10 +55,9 @@ export function PitchWorkspace() {
     if (!recording) return;
     const body = withTimeLimit(new FormData());
     body.append("file", recording);
-    run<AudioAnalysis>("pitch", "/api/analyze", body, (result) => {
-      if (!result.filler_words) throw new Error(OLDER_SERVICE);
-      setPitch(result);
-      setAlignment(undefined);
+    run<AudioAnalysis>("pitch", "/api/analyze", body, (pitch) => {
+      if (!pitch.filler_words) throw new Error(OLDER_SERVICE);
+      show({ pitch, slides: results.slides });
     });
   }
 
@@ -65,10 +65,7 @@ export function PitchWorkspace() {
     if (!deck) return;
     const body = new FormData();
     body.append("file", deck);
-    run<DeckAnalysis>("deck", "/api/deck", body, (result) => {
-      setSlides(result);
-      setAlignment(undefined);
-    });
+    run<DeckAnalysis>("deck", "/api/deck", body, (slides) => show({ pitch: results.pitch, slides }));
   }
 
   function checkBoth() {
@@ -76,17 +73,16 @@ export function PitchWorkspace() {
     const body = withTimeLimit(new FormData());
     body.append("recording", recording);
     body.append("deck", deck);
-    run<PitchCheck>("check", "/api/check", body, (result) => {
-      setPitch(result.pitch);
-      setSlides(result.deck);
-      setAlignment(result.alignment);
+    run<PitchCheck>("check", "/api/check", body, (check) => {
+      if (!check.pitch?.filler_words) throw new Error(OLDER_SERVICE);
+      show({ pitch: check.pitch, slides: check.deck, alignment: check.alignment });
     });
   }
 
+  const { pitch, slides, alignment } = results;
   const busy = !!job;
   const statusOf = (kind: JobKind) => (job?.kind === kind ? job : null);
   const missing = !recording && !deck ? "a recording and a PDF deck" : !recording ? "a recording" : !deck ? "a PDF deck" : null;
-  const hasResults = !!pitch || !!slides || alignment !== undefined;
 
   return (
     <>
@@ -95,15 +91,13 @@ export function PitchWorkspace() {
           file={recording}
           onSelect={(file) => {
             setRecording(file);
-            setPitch(null);
-            setAlignment(undefined);
             setErrors({});
+            show({ pitch: null, slides });
           }}
           onRemove={() => {
             setRecording(null);
-            setPitch(null);
-            setAlignment(undefined);
             setErrors({});
+            show({ pitch: null, slides });
           }}
           onAnalyze={analyzePitch}
           timeLimit={timeLimit}
@@ -116,15 +110,13 @@ export function PitchWorkspace() {
           file={deck}
           onSelect={(file) => {
             setDeck(file);
-            setSlides(null);
-            setAlignment(undefined);
             setErrors({});
+            show({ pitch, slides: null });
           }}
           onRemove={() => {
             setDeck(null);
-            setSlides(null);
-            setAlignment(undefined);
             setErrors({});
+            show({ pitch, slides: null });
           }}
           onAnalyze={analyzeDeck}
           busy={busy}
@@ -139,7 +131,7 @@ export function PitchWorkspace() {
         status={statusOf("check")}
         error={errors.check}
       />
-      {hasResults && (
+      {(pitch || slides) && (
         <div className="analysis-results" id="results">
           <div className="results-intro">
             <Sparkles aria-hidden="true" className="size-5" />

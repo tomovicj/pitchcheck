@@ -83,6 +83,22 @@ def level_for_share(share: float) -> int:
     return 4 if share == 0 else 3 if share <= 0.15 else 2 if share <= 0.35 else 1 if share <= 0.6 else 0
 
 
+def time_share_levels(problem: str) -> list[str]:
+    """Level descriptions for a criterion rated by the share of the pitch's time that has a problem."""
+    return [
+        f"no part of the pitch {problem}",
+        f"up to a fifth of the pitch {problem}",
+        f"up to half of the pitch {problem}",
+        f"more than half of the pitch {problem}",
+        f"the whole pitch {problem}",
+    ]
+
+
+def level_for_time_share(share: float) -> int:
+    """The level for a share of the pitch's time with a problem; limits as in time_share_levels()."""
+    return 4 if share == 0 else 3 if share <= 0.2 else 2 if share <= 0.5 else 1 if share < 1 else 0
+
+
 def split_topics(topic_lists: list[object]) -> tuple[list[str], list[str]]:
     """The expected topics that appear in some list Gemma returned, and the ones that appear in none."""
     found = set()

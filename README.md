@@ -30,8 +30,9 @@ Read from the code on the `feature/pitch-rubric` branch. "Implemented" means it 
 | Pitch and loudness variation, measured from the signal with Praat | Implemented; sent to Gemma as supporting evidence |
 | Pauses, measured from the signal with Praat | Implemented |
 | Splitting the audio into segments of at most 30 seconds, cut at pauses | Implemented |
-| Gemma 4 E2B listens to each segment: tone of voice, pace, filler words, and which of the expected pitch topics it explains | Implemented; not yet validated on real recordings (TODO section 1) |
-| Gemma 4 E2B scores the pitch from the segment observations: levels for pauses, pitch variation, loudness and structure, insights and timestamped feedback | Implemented |
+| Speaking rate, measured from the signal as syllables per second of speaking | Implemented; tried on one synthetic voice at three speeds |
+| Gemma 4 E2B listens to each segment: tone of voice, filler words, which of the expected pitch topics it explains, and the statements the speaker makes | Implemented; not yet validated on real recordings (TODO section 1) |
+| Gemma 4 E2B reviews the pitch from the segment observations and the measured findings: a level for structure and flow, insights and timestamped feedback | Implemented |
 | Pitch score from seven rubric criteria (pace, filler words, pauses, pitch variation, loudness, topic coverage, structure and flow) on levels 0 to 4, with the expected topics no segment explained | Implemented; the rubric (`RUBRIC` in `services/audio/app/main.py`) has not been tried on real recordings |
 | Time criterion: the length of the recording against the event's time limit, when the team enters one | Implemented |
 | PDF deck upload; pages rendered to images; text size, words per slide, fonts and contrast measured from the file | Implemented; needs a PDF with a text layer for the measurements. PPTX is not accepted |
@@ -51,8 +52,26 @@ Who gives a level follows one rule. Where the level descriptions are a judgement
 
 | Score | Gemma gives the level | Code gives the level |
 | --- | --- | --- |
-| Pitch | Pauses, pitch variation, loudness, structure and flow | Pace (from the pace Gemma heard in each segment), filler words (from the filler words it heard), topic coverage (from the topics it heard), time (from the recording's length and the event's limit) |
+| Pitch | Structure and flow | Pace, pauses, pitch variation and loudness (from the signal), filler words and topic coverage (from what Gemma heard), time (from the recording's length and the event's limit) |
 | Slides | Visual consistency, structure and flow | Topic coverage (from Gemma's map of topics to slides), one message per slide (from what Gemma read on each slide), text size, text density, contrast (from the PDF) |
+
+### What Gemma did not hear
+
+One test, on 11 October 2026, with a text-to-speech voice. The same 56 words were spoken at three rates: 124, 169 and 343 words a minute. Gemma 4 E2B got each clip through the per-segment prompt, once with the audio alone and once with the signal measurements in the prompt.
+
+| Clip | Gemma's pace, audio alone | Gemma's pace, with measurements | Measured speaking rate |
+| --- | --- | --- | --- |
+| 124 words a minute | conversational | conversational | 3.49 syllables a second |
+| 169 words a minute | conversational | conversational | 4.23 syllables a second |
+| 343 words a minute | conversational | conversational | 7.05 syllables a second |
+
+Gemma's description of the tone was nearly the same sentence for all three clips, and it listed the word "like" in "like tiny fonts" as a filler word every time. So pace is no longer asked of Gemma. It is measured from the signal: syllables are counted as voiced peaks in loudness (de Jong and Wempe 2009) and divided by the seconds of speaking. A segment under 2.7 syllables a second counts as slow and one over 5.5 as fast; those limits are a convention.
+
+The test says nothing about tone: a synthetic voice at three speeds does not change its tone. Whether Gemma hears flat against lively delivery is still open, and it needs human recordings (TODO section 1).
+
+Pauses, pitch variation and loudness had been rated by Gemma from the sound and the measurements in its prompt. On the same steady synthetic voice it gave loudness level 3 in one run and level 2 in the next. Those three are now rated in code as well, from the measurements alone, with limits the team chose: a pause over 2 seconds is long, a segment whose pitch varies by under 2 semitones is even, a segment 6 dB quieter than the whole recording is quiet, and a segment whose loudness swings by over 9 dB is uneven. None of the four has a study behind it. What Gemma does for the pitch is what it showed it can do: hear the filler sounds, the topics and the statements, judge the structure, and write the insights and the feedback from the measured findings.
+
+Only sounds that fill a pause (um, uh, er, hmm) are counted as filler words. Gemma also listed words such as "like" and "so" where they were part of the sentence, so words are left out of the count.
 
 The rubrics rate what can be heard, seen or measured. They have no criterion for emotion, confidence, accent or pronunciation, and the results cards say so. Only two limits rest on something outside the team: the filler word levels on one study in English, and the contrast limit on WCAG 2.2, which was written for the web. The other limits are conventions and are named as such in the code and on the results cards.
 
@@ -108,7 +127,7 @@ All seven steps are built, shaped by the Gemma limits in the next section.
 1. The team uploads the pitch video and the deck as a PDF.
 2. ffmpeg extracts the audio track as 16 kHz mono.
 3. The audio is split into segments of at most 30 seconds, because that is the longest clip Gemma accepts.
-4. For each segment, Gemma receives the audio together with signal measurements for that segment (pitch variation, loudness variation, pauses). It returns structured observations about delivery (tone of voice, pace, filler words), the topics covered and the key points of what was said.
+4. For each segment, Gemma receives the audio together with signal measurements for that segment (pitch variation, loudness variation, speaking rate, pauses). It returns structured observations about delivery (tone of voice, filler words), the topics covered and the statements the speaker made.
 5. Deck pages are rendered to images and measured from the file. Gemma reads each page image, with the page's text from the file, for its title, its point and its key points.
 6. Gemma reviews the deck as a whole and scores the pitch from the segment observations. The two scores come out of the rubrics.
 7. Gemma compares the key points of the slides with the key points of the speech: deck points the speaker never explained, and statements that contradict the slides. Summarizing a slide or adding explanation is not a finding.

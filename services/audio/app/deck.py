@@ -1,6 +1,8 @@
 """Slide deck analysis: measurements from the PDF file, reading and judgement with Gemma."""
 
+import base64
 import ctypes
+import io
 import json
 import logging
 import os
@@ -22,6 +24,7 @@ MAX_SLIDES = int(os.getenv("MAX_SLIDES", "20"))
 # Visual tokens Gemma spends on one slide: 70, 140, 280, 560 or 1120. More reads small text better and takes longer.
 SLIDE_TOKENS = int(os.getenv("SLIDE_TOKENS", "560"))
 RENDER_WIDTH = 1600
+THUMBNAIL_WIDTH = 320
 MAX_SLIDE_TEXT = 1500
 
 # Text sizes are a share of the slide height, so they mean the same on a 540 pt and on a 405 pt page.
@@ -398,6 +401,15 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int) -> tuple[dict | N
     return summary, topics
 
 
+def thumbnail(image: Image.Image) -> str:
+    """A small JPEG of the page as a data URL, so the results can show which slide a note is about."""
+    small = image.copy()
+    small.thumbnail((THUMBNAIL_WIDTH, THUMBNAIL_WIDTH))
+    buffer = io.BytesIO()
+    small.save(buffer, "JPEG", quality=70)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
 def run_analysis(page_count: int, pages: list[dict], ask: Ask, report: Callable[[str, float], None]) -> dict:
     """Read and review the pages from read_pdf(), reporting (stage, overall 0-1 progress) along the way."""
     slides = []
@@ -406,6 +418,7 @@ def run_analysis(page_count: int, pages: list[dict], ask: Ask, report: Callable[
         logger.info("Reading slide %s/%s", n, len(pages))
         slides.append({
             "number": page["number"],
+            "thumbnail": thumbnail(page["image"]),
             "measurements": page["measurements"],
             **observe_slide(ask, page, page_count),
         })

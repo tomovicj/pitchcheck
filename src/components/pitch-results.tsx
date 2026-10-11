@@ -65,9 +65,9 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
               investment potential or the speaker&apos;s emotions.
             </li>
             <li>
-              Pauses, pitch and loudness are measured from the signal with Praat. Pace, filler words
-              and topics are what Gemma hears. Only the filler word levels rest on research (one
-              study, in English); the other levels are conventions.
+              Pauses, pitch, loudness and speaking rate are measured from the signal with Praat.
+              Filler words and topics are what Gemma hears. Only the filler word levels rest on
+              research (one study, in English); the other levels are conventions.
             </li>
             <li>The score has not been validated against jury decisions or funding outcomes.</li>
             <li>
@@ -95,6 +95,13 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
             value={`${Math.round(pauses.speaking_ratio * 100)}%`}
             hint="of the time between first and last word"
           />
+          {prosody?.syllable_rate != null && (
+            <Stat
+              label="Speaking rate"
+              value={`${prosody.syllable_rate} /s`}
+              hint="syllables per second of speaking, measured"
+            />
+          )}
           <Stat label="Segments" value={String(segments.length)} hint="up to 30s each" />
           <Stat
             label="Filler words"
@@ -149,7 +156,12 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                   <span className="text-sm font-medium tabular-nums">
                     {formatTime(segment.start_s)}–{formatTime(segment.end_s)}
                   </span>
-                  {o?.pace && <Badge variant="outline">{o.pace} pace</Badge>}
+                  {segment.pace && (
+                    <Badge variant="outline">
+                      {segment.pace} pace
+                      {segment.measurements?.syllable_rate != null && ` · ${segment.measurements.syllable_rate} syllables/s`}
+                    </Badge>
+                  )}
                 </div>
                 {o ? (
                   <>

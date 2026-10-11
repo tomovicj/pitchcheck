@@ -30,7 +30,7 @@ main.load_models()
 loaded = time.perf_counter()
 
 silences = main.find_silences(audio)
-measurements = main.measure(audio)
+measurements = main.measure(audio, duration - main.silent_time(silences, 0.0, duration))
 pause_ratio = round(sum(main.inner_pauses(silences, 0.0, duration)) / duration, 2)
 if audio_only:
     prompt = main.SEGMENT_PROMPT.format(

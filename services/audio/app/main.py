@@ -38,11 +38,25 @@ MIN_SEGMENT_S = 1.0
 PAUSE_THRESHOLD_S = 0.5
 # Frames this far below the loudest one count as silence
 SILENCE_BELOW_PEAK_DB = 25.0
+# Speaking rate in syllables per second of speaking, outside which a segment counts as slow or fast.
+# Gemma did not hear pace: it called the same text at 124, 169 and 343 words a minute "conversational"
+# every time, so pace is measured. The limits are a convention, about 100 and 215 words a minute on
+# the synthetic voice they were tried on; published advice disagrees, so only the extremes are marked.
+SLOW_SYLLABLES_PER_S = 2.7
+FAST_SYLLABLES_PER_S = 5.5
+# Limits for the other criteria rated from the signal. All three are conventions the team chose, with no
+# study behind them: Gemma gave a steady synthetic voice a different loudness level from one run to the
+# next, so these levels are arithmetic too, and the limits are here to be argued with.
+LONG_PAUSE_S = 2.0  # a pause longer than this counts against the pauses criterion
+EVEN_PITCH_SEMITONES = 2.0  # a segment whose pitch varies by less than this (std) counts as even
+QUIET_BELOW_MEAN_DB = 6.0  # a segment this much quieter than the whole recording counts as quiet
+UNEVEN_LOUDNESS_DB = 9.0  # a segment whose loudness varies by more than this (std) counts as uneven
 MAX_DECK_BYTES = 50 * 2**20
 
-# Rated in code from what Gemma heard in each segment: the level is arithmetic on a count or a share,
-# and Gemma did not apply numeric limits reliably when asked to. It called 5.7 filler words a minute
-# "5 or fewer", and a pitch with two expected topics missing complete. Topic coverage is rated the same way.
+# Rated in code: the level is arithmetic on a count or a share, and Gemma did not apply numeric limits
+# reliably when asked to. It called 5.7 filler words a minute "5 or fewer", and a pitch with two
+# expected topics missing complete. Pace comes from the measured speaking rate; filler words and
+# topic coverage from what Gemma heard in each segment.
 PACE_CRITERION = "Pace"
 FILLER_CRITERION = "Filler words"
 # Rated in code, and only when the event's time limit came with the recording
@@ -52,13 +66,7 @@ TIME_CRITERION = "Time"
 # never the speaker's state of mind. Only the filler word levels rest on research (Laske and DiGennaro Reed
 # 2024, one study, English; nothing is known between 5 and 12 per minute). The rest are conventions.
 RUBRIC = {
-    PACE_CRITERION: [
-        "conversational pace throughout",
-        "up to a fifth of the pitch is fast or slow",
-        "up to half of the pitch is fast or slow",
-        "more than half of the pitch is fast or slow",
-        "the whole pitch is fast or slow",
-    ],
+    PACE_CRITERION: rubric.time_share_levels("is spoken slowly or fast"),
     FILLER_CRITERION: [
         "5 or fewer per minute",
         "more than 5 and up to 7 per minute",
@@ -67,26 +75,14 @@ RUBRIC = {
         "12 or more per minute",
     ],
     "Pauses": [
-        "pauses separate one point from the next",
-        "one long pause falls in the middle of a point",
-        "a few long pauses fall in the middle of a point",
-        "long pauses fall in the middle of a point in most parts of the pitch",
-        "frequent long pauses in the middle of points throughout",
+        f"no pause longer than {LONG_PAUSE_S:g} seconds",
+        f"at most one pause longer than {LONG_PAUSE_S:g} seconds a minute",
+        "at most two a minute",
+        "at most four a minute",
+        f"more than four pauses longer than {LONG_PAUSE_S:g} seconds a minute",
     ],
-    "Pitch variation": [
-        "pitch moves throughout the recording",
-        "one short stretch of even pitch",
-        "longer stretches of even pitch",
-        "even pitch in most of the recording",
-        "even pitch throughout the recording",
-    ],
-    "Loudness": [
-        "easy to hear and even throughout",
-        "one short part is quiet or uneven",
-        "some parts are quiet or uneven",
-        "most parts are quiet or uneven",
-        "most of the recording is hard to hear",
-    ],
+    "Pitch variation": rubric.time_share_levels("has even pitch"),
+    "Loudness": rubric.time_share_levels("is much quieter than the rest or swings in loudness"),
     TIME_CRITERION: [
         "within the event's time limit",
         "over the limit by up to 5%",
@@ -104,8 +100,8 @@ RUBRIC = {
         "no opening, no order and no closing",
     ],
 }
-# Gemma rates the criteria whose levels are a judgement of what it heard, next to the measurements
-GEMMA_CRITERIA = ["Pauses", "Pitch variation", "Loudness", "Structure and flow"]
+# Gemma rates the criterion that is a judgement of what was said; the rest follow from the signal and from counts
+GEMMA_CRITERIA = ["Structure and flow"]
 
 T = TypeVar("T")
 
@@ -193,6 +189,7 @@ def analyze_pauses(silences: list[tuple[float, float]], duration: float) -> dict
         "total_pause_s": round(sum(pauses), 2),
         "mean_pause_s": round(float(np.mean(pauses)), 2) if pauses else 0.0,
         "longest_pause_s": round(max(pauses), 2) if pauses else 0.0,
+        "long_pause_count": sum(p > LONG_PAUSE_S for p in pauses),
         # Share of the time between first and last sound spent talking
         "speaking_ratio": round(speaking / (duration - edges), 2) if duration > edges else 0.0,
         # From the first sound to the last: the length of the pitch without leading and trailing silence
@@ -219,7 +216,34 @@ def segment(duration: float, silences: list[tuple[float, float]]) -> list[tuple[
     return segments
 
 
-def measure(audio: np.ndarray) -> dict | None:
+def silent_time(silences: list[tuple[float, float]], start: float, end: float) -> float:
+    """Seconds of silence within [start, end], the edges of the recording included."""
+    return sum(max(0.0, min(e, end) - max(s, start)) for s, e in silences)
+
+
+def count_syllables(sound: parselmouth.Sound) -> int:
+    """Syllable nuclei after de Jong and Wempe (2009): voiced peaks in loudness, each followed by a dip of 2 dB or more."""
+    intensity = sound.to_intensity(minimum_pitch=50)
+    values, times = intensity.values[0], intensity.xs()
+    pitch = sound.to_pitch()
+    threshold = np.percentile(values, 99) - SILENCE_BELOW_PEAK_DB
+    peaks = [i for i in range(1, len(values) - 1) if values[i - 1] < values[i] >= values[i + 1] and values[i] > threshold]
+    count = 0
+    for peak, following in zip(peaks, peaks[1:] + [len(values)]):
+        if values[peak] - values[peak:following].min() > 2 and not np.isnan(pitch.get_value_at_time(times[peak])):
+            count += 1
+    return count
+
+
+def pace_of(syllable_rate: float | None) -> str | None:
+    """Slow, conversational or fast, from the measured speaking rate; None when it was not measured."""
+    if syllable_rate is None:
+        return None
+    return "slow" if syllable_rate < SLOW_SYLLABLES_PER_S else "fast" if syllable_rate > FAST_SYLLABLES_PER_S else "conversational"
+
+
+def measure(audio: np.ndarray, speaking_s: float | None = None) -> dict | None:
+    """Pitch, loudness and, when the seconds of actual speaking are given, the speaking rate."""
     sound = to_sound(audio)
     f0 = sound.to_pitch().selected_array["frequency"]
     voiced = f0[f0 > 0]
@@ -242,6 +266,8 @@ def measure(audio: np.ndarray) -> dict | None:
         "voiced_ratio": round(voiced.size / f0.size, 2),
         "intensity_mean_db": round(float(intensity.mean()), 1),
         "intensity_std_db": round(float(intensity.std()), 1),
+        # Syllables per second of speaking, pauses left out
+        "syllable_rate": round(count_syllables(sound) / speaking_s, 2) if speaking_s and speaking_s >= 1 else None,
     }
 
 
@@ -323,10 +349,20 @@ def describe_measurements(measurements: dict | None, pause_ratio: float | None =
         f"- Loudness variation while speaking: {measurements['intensity_std_db']} dB std",
         f"- Voiced share of frames: {measurements['voiced_ratio']}",
     ]
+    if measurements.get("syllable_rate") is not None:
+        lines.append(
+            f"- Speaking rate: {measurements['syllable_rate']} syllables per second of speaking, "
+            f"which counts as {pace_of(measurements['syllable_rate'])} (under {SLOW_SYLLABLES_PER_S} is slow, over {FAST_SYLLABLES_PER_S} fast)"
+        )
     if pause_ratio is not None:
         lines.append(f"- Share of time in pauses of {PAUSE_THRESHOLD_S}s or longer: {pause_ratio}")
     return "\n".join(lines)
 
+
+# Sounds that fill a pause: um, uh, er, hmm and their spellings. Only these are kept from Gemma's list of
+# filler words. It also listed words such as "like" and "so" where they were part of the sentence, and
+# telling it not to did not stop it, so words are not counted.
+FILLED_PAUSE = re.compile(r"^(u+h+m*|u+m+|u{2,}|e+r+m*|e+h+|e{2,}|a+h+|a{2,}|h+m+|m{2,}|m+h+m+|ə+)$")
 
 # Describing the voice is not the same as inferring how the speaker feels; the product does the first only
 NO_STATE = (
@@ -335,7 +371,7 @@ NO_STATE = (
 )
 
 SEGMENT_PROMPT = """You are a presentation coach listening to one segment of a startup pitch, from {start} to {end} in the recording.
-Describe how it is delivered: how the voice sounds, the pace, hesitation and filler words. Do not judge the business idea.
+Describe how it is delivered: how the voice sounds, hesitation and filler words. Do not judge the business idea.
 {no_state}
 Base your answer on what you hear in the audio. Use the measurements below as supporting evidence.
 
@@ -343,8 +379,7 @@ Base your answer on what you hear in the audio. Use the measurements below as su
 
 Reply with only a JSON object in this shape:
 {{"tone": "how the voice sounds: pitch movement, loudness, steadiness",
- "pace": "slow" | "conversational" | "fast",
- "filler_words": ["every filler word or sound in the order you hear it, repeated each time it is said, e.g. um, uh, um, like"],
+ "filler_words": ["every sound that fills a pause, in the order you hear it, repeated each time it is made, e.g. um, uh, um, er"],
  "topics": ["the name of each topic this segment explains, from: {topics}"],
  "key_points": ["every statement the speaker makes in this segment, each as one short sentence, in order, keeping numbers and names as spoken; at most 12"],
  "observations": "one or two sentences on what works and what does not in this delivery"}}"""
@@ -360,29 +395,36 @@ def observe_segment(clip: np.ndarray, start: float, end: float, measurements: di
     )
     # Audio after the text, as recommended for Gemma 4
     observations, raw = ask_gemma([{"type": "text", "text": prompt}, {"type": "audio", "audio": clip}])
+    if observations is not None:
+        fillers = observations.get("filler_words")
+        observations["filler_words"] = [
+            f for f in (fillers if isinstance(fillers, list) else [])
+            if isinstance(f, str) and FILLED_PAUSE.match(f.strip(" .,!?-").lower())
+        ]
     return {"observations": observations, **({} if observations else {"raw": raw})}
 
 
-SCORE_PROMPT = """You are a presentation coach rating the delivery of a startup pitch against a fixed rubric. Rate how it was delivered, never the business idea or its market potential.
+SCORE_PROMPT = """You are a presentation coach reviewing the delivery of a startup pitch against a fixed rubric. Review how it was delivered, never the business idea or its market potential.
 {no_state}
 
 Whole recording: {duration}.
 {measurements}
 Pauses: {pauses}
-Filler words: {filler_count} heard, {fillers_per_minute} per minute.
-Expected topics explained in some segment: {covered}. Expected topics no segment explains: {missing}.
 
-Observations per segment, made while listening to the audio:
+What you heard in each segment:
 {segments}
 
-Give each criterion the level, from 4 down to 0, whose description fits best:
+Already rated from the measurements and from counts of what you heard:
+{findings}
+
+Give this criterion the level, from 4 down to 0, whose description fits best:
 {rubric}
 
 Reply with only a JSON object in this shape:
-{{"criteria": [{{"name": "Pauses", "reason": "one sentence naming the measurement or the moment it rests on", "level": 0}}, ...one entry per criterion above, in the same order],
+{{"criteria": [{{"name": "Structure and flow", "reason": "one sentence naming the moment it rests on", "level": 0}}],
  "insights": ["what the analysis found, 3 to 5 short statements"],
  "feedback": [{{"at_s": 0, "text": "one concrete thing to change"}}]}}
-Give 3 to 5 feedback items. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
+Give 3 to 5 feedback items. Start with the criteria rated below 4 above, naming the number that was measured; then add what you found yourself. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
 A voice whose pitch moves and whose loudness stays easy to hear helps a listener: never advise a flatter or more even pitch."""
 
 
@@ -414,68 +456,112 @@ def rate_time(spoken_s: float, limit_s: float) -> dict:
     return {"name": TIME_CRITERION, "reason": reason, "level": level}
 
 
-def rate_pace(segments: list[dict]) -> dict | None:
-    """The pace criterion, from the share of the heard time that Gemma called fast or slow; limits as in RUBRIC."""
-    heard = [s for s in segments if (s["observations"] or {}).get("pace") in ("slow", "conversational", "fast")]
-    if not heard:
-        return None
-    uneven = [s for s in heard if s["observations"]["pace"] != "conversational"]
-    share = sum(s["end_s"] - s["start_s"] for s in uneven) / sum(s["end_s"] - s["start_s"] for s in heard)
-    level = 4 if share == 0 else 3 if share <= 0.2 else 2 if share <= 0.5 else 1 if share < 1 else 0
-    parts = ", ".join(f"{s['observations']['pace']} from {format_time(s['start_s'])} to {format_time(s['end_s'])}" for s in uneven)
-    reason = f"Gemma heard a pace that is {parts}." if uneven else "Gemma heard a conversational pace in every segment."
-    return {"name": PACE_CRITERION, "reason": reason, "level": level}
+def span(s: dict) -> str:
+    return f"{format_time(s['start_s'])} to {format_time(s['end_s'])}"
 
 
-def rate(criteria: object, counted: dict[str, dict]) -> tuple[list[dict], int | None]:
-    """Gemma's valid levels and the criteria rated in code, as one 0-100 score in steps of 5.
+def spread(values: list[float]) -> str:
+    """One number, or the lowest and the highest when the segments differ."""
+    return f"{min(values)}" if min(values) == max(values) else f"{min(values)} to {max(values)}"
 
-    Equal weights; a criterion without a valid level drops out of the score instead of counting as 0.
-    """
-    rated = rubric.gemma_levels(criteria, GEMMA_CRITERIA)
-    # No score from the counts alone when Gemma rated nothing
-    if not rated:
-        return [], None
-    return rubric.total(RUBRIC, {**rated, **counted})
+
+def rate_time_share(name: str, flagged: list[dict], measured: list[dict], finding: str, clear: str) -> dict:
+    """A criterion rated by the share of the measured time whose segments have a problem; limits as in rubric.time_share_levels()."""
+    share = sum(s["end_s"] - s["start_s"] for s in flagged) / sum(s["end_s"] - s["start_s"] for s in measured)
+    reason = f"{finding} from {', '.join(span(s) for s in flagged)}." if flagged else clear
+    return {"name": name, "reason": reason, "level": rubric.level_for_time_share(share)}
+
+
+def rate_signal(prosody: dict | None, pauses: dict, segments: list[dict]) -> dict[str, dict]:
+    """The criteria that follow from the signal alone: pace, pauses, pitch variation and loudness."""
+    rated = {}
+    paced = [s for s in segments if s["pace"]]
+    if paced:
+        rated[PACE_CRITERION] = rate_time_share(
+            PACE_CRITERION,
+            [s for s in paced if s["pace"] != "conversational"],
+            paced,
+            f"Speaking rate outside {SLOW_SYLLABLES_PER_S} to {FAST_SYLLABLES_PER_S} syllables a second",
+            f"Speaking rate of {spread([s['measurements']['syllable_rate'] for s in paced])} syllables a second, a conversational pace.",
+        )
+
+    minutes = max(pauses["spoken_s"], 1.0) / 60
+    long_per_minute = pauses["long_pause_count"] / minutes
+    level = 4 if long_per_minute == 0 else 3 if long_per_minute <= 1 else 2 if long_per_minute <= 2 else 1 if long_per_minute <= 4 else 0
+    rated["Pauses"] = {
+        "name": "Pauses",
+        "reason": f"{pauses['long_pause_count']} of {pauses['pause_count']} pauses are longer than {LONG_PAUSE_S:g} seconds; the longest is {pauses['longest_pause_s']} s.",
+        "level": level,
+    }
+
+    measured = [s for s in segments if s["measurements"]]
+    if measured and prosody:
+        rated["Pitch variation"] = rate_time_share(
+            "Pitch variation",
+            [s for s in measured if s["measurements"]["pitch_std_semitones"] < EVEN_PITCH_SEMITONES],
+            measured,
+            f"Pitch varies by under {EVEN_PITCH_SEMITONES:g} semitones",
+            f"Pitch varies by {spread([s['measurements']['pitch_std_semitones'] for s in measured])} semitones around the speaker's own median.",
+        )
+        rated["Loudness"] = rate_time_share(
+            "Loudness",
+            [
+                s for s in measured
+                if s["measurements"]["intensity_mean_db"] < prosody["intensity_mean_db"] - QUIET_BELOW_MEAN_DB
+                or s["measurements"]["intensity_std_db"] > UNEVEN_LOUDNESS_DB
+            ],
+            measured,
+            f"More than {QUIET_BELOW_MEAN_DB:g} dB quieter than the recording as a whole, or loudness swinging by over {UNEVEN_LOUDNESS_DB:g} dB,",
+            f"No part is more than {QUIET_BELOW_MEAN_DB:g} dB quieter than the rest, and loudness varies by {prosody['intensity_std_db']} dB while speaking.",
+        )
+    return rated
 
 
 def score_pitch(
     duration: float, prosody: dict | None, pauses: dict, fillers: dict, segments: list[dict], time_limit_s: float | None
-) -> dict | None:
+) -> dict:
+    """Rate the pitch: the signal and the counts in code, structure by Gemma, and one 0-100 score over both."""
+    covered, missing = rubric.split_topics([(s["observations"] or {}).get("topics") for s in segments])
+    rated = rate_signal(prosody, pauses, segments)
+    # Without a single parsed segment there is no filler count to rate and no topic was heard or missed
+    if any(s["observations"] for s in segments):
+        rated[FILLER_CRITERION] = rate_fillers(fillers)
+        rated[rubric.TOPIC_CRITERION] = rubric.rate_topics(missing)
+    else:
+        missing = []
+    if time_limit_s:
+        rated[TIME_CRITERION] = rate_time(pauses["spoken_s"], time_limit_s)
+
     described = []
     for s in segments:
         observations = json.dumps(s["observations"]) if s["observations"] else "(no observations)"
-        described.append(f"- {format_time(s['start_s'])}-{format_time(s['end_s'])} (starts at {s['start_s']}s): {observations}")
-    covered, missing = rubric.split_topics([(s["observations"] or {}).get("topics") for s in segments])
+        described.append(f"- {span(s)} (starts at {s['start_s']}s): {observations}")
     prompt = SCORE_PROMPT.format(
         no_state=NO_STATE,
         duration=format_time(duration),
         measurements=describe_measurements(prosody),
         pauses=json.dumps(pauses),
-        filler_count=fillers["count"],
-        fillers_per_minute=fillers["per_minute"],
-        covered=", ".join(covered) or "none",
-        missing=", ".join(missing) or "none",
         segments="\n".join(described),
+        findings="\n".join(f"- {c['name']}: level {c['level']} of 4. {c['reason']}" for c in rated.values()),
         rubric=rubric.describe(RUBRIC, GEMMA_CRITERIA),
     )
-    summary, _ = ask_gemma([{"type": "text", "text": prompt}])
-    if summary is not None:
-        # The overall score is arithmetic over the levels, so the same levels always give the same score.
-        # Without a single parsed segment there is no filler count to rate and no topic was heard or missed.
-        counted = {}
-        if any(s["observations"] for s in segments):
-            counted[FILLER_CRITERION] = rate_fillers(fillers)
-            counted[rubric.TOPIC_CRITERION] = rubric.rate_topics(missing)
-            if (pace := rate_pace(segments)) is not None:
-                counted[PACE_CRITERION] = pace
-        else:
-            missing = []
-        if time_limit_s:
-            counted[TIME_CRITERION] = rate_time(pauses["spoken_s"], time_limit_s)
-        summary["criteria"], summary["pitch_score"] = rate(summary.get("criteria"), counted)
-        summary["missing_topics"] = missing
-    return summary
+    reply, _ = ask_gemma([{"type": "text", "text": prompt}])
+    reply = reply or {}
+    rated.update(rubric.gemma_levels(reply.get("criteria"), GEMMA_CRITERIA))
+    # The score is arithmetic over the levels, so the same levels always give the same score
+    criteria, score = rubric.total(RUBRIC, rated)
+    feedback = [
+        {"at_s": f.get("at_s") if type(f.get("at_s")) in (int, float) else None, "text": f["text"].strip()}
+        for f in (reply.get("feedback") if isinstance(reply.get("feedback"), list) else [])
+        if isinstance(f, dict) and isinstance(f.get("text"), str) and f["text"].strip()
+    ]
+    return {
+        "pitch_score": score,
+        "criteria": criteria,
+        "missing_topics": missing,
+        "insights": rubric.strings(reply.get("insights"), 5),
+        "feedback": feedback[:5],
+    }
 
 
 def format_time(seconds: float) -> str:
@@ -492,7 +578,7 @@ def run_analysis(audio: np.ndarray, report: Callable[[str, float], None], time_l
     report("measuring", 0.0)
     silences = find_silences(audio)
     pauses = analyze_pauses(silences, duration)
-    prosody = measure(audio)
+    prosody = measure(audio, duration - silent_time(silences, 0.0, duration))
     bounds = segment(duration, silences)
 
     report("listening", 0.05)
@@ -500,13 +586,15 @@ def run_analysis(audio: np.ndarray, report: Callable[[str, float], None], time_l
     for n, (start, end) in enumerate(bounds, start=1):
         logger.info("Listening to segment %s/%s (%s-%s)", n, len(bounds), format_time(start), format_time(end))
         clip = audio[int(start * SAMPLE_RATE) : int(end * SAMPLE_RATE)]
-        measurements = measure(clip)
+        measurements = measure(clip, end - start - silent_time(silences, start, end))
         pause_ratio = round(sum(inner_pauses(silences, start, end)) / (end - start), 2)
         segments.append({
             "start_s": round(start, 2),
             "end_s": round(end, 2),
             "measurements": measurements,
             "pause_ratio": pause_ratio,
+            # Measured, not heard: slow, conversational or fast
+            "pace": pace_of((measurements or {}).get("syllable_rate")),
             **observe_segment(clip, start, end, measurements, pause_ratio),
         })
         report("listening", 0.05 + 0.85 * n / len(bounds))
