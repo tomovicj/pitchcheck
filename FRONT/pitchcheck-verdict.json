@@ -1,0 +1,118 @@
+{
+  "format": "pitchcheck-verdict/1",
+  "created": "2026-10-11T07:20:59.817Z",
+  "team": "dsds",
+  "event": "dsadas",
+  "summary": "",
+  "pitch": {
+    "score": 50,
+    "criteria": [
+      {
+        "name": "Pace",
+        "reason": "Speaking rate outside 2.7 to 5.5 syllables a second from 0:00 to 0:12, 0:12 to 0:24.",
+        "level": 0
+      },
+      {
+        "name": "Filler words",
+        "reason": "0 heard by Gemma, 0.0 per minute (5 or fewer per minute).",
+        "level": 4
+      },
+      {
+        "name": "Pauses",
+        "reason": "2 of 9 pauses are longer than 2 seconds; the longest is 2.62 s.",
+        "level": 0
+      },
+      {
+        "name": "Pitch variation",
+        "reason": "Pitch varies by 4.55 to 6.79 semitones around the speaker's own median.",
+        "level": 4
+      },
+      {
+        "name": "Loudness",
+        "reason": "No part is more than 6 dB quieter than the rest, and loudness varies by 4.9 dB while speaking.",
+        "level": 4
+      },
+      {
+        "name": "Topic coverage",
+        "reason": "Not explained: problem, alternatives, business model, team.",
+        "level": 1
+      },
+      {
+        "name": "Structure and flow",
+        "reason": "The pitch delivery and rapid speaking rate make it difficult to track the intended structure.",
+        "level": 1
+      }
+    ],
+    "duration_s": 24.75,
+    "time_limit_s": null,
+    "file": {
+      "sha256": "11b58c98ba4c92166497dcc7c3a775440c7425890c03d5ff75d01afbbfa31102",
+      "bytes": 34347986
+    }
+  },
+  "deck": {
+    "score": 55,
+    "criteria": [
+      {
+        "name": "Topic coverage",
+        "reason": "Every expected topic is explained.",
+        "level": 4
+      },
+      {
+        "name": "One message per slide",
+        "reason": "Slides 6, 7, 8, 9, 12, 13, 14, 15 and 16: no title, or several points on one slide.",
+        "level": 1
+      },
+      {
+        "name": "Text size",
+        "reason": "No slide: most of the text is under 3.3% of the slide height (18 pt on a standard slide).",
+        "level": 4
+      },
+      {
+        "name": "Text density",
+        "reason": "No slide: more than 60 words.",
+        "level": 4
+      },
+      {
+        "name": "Contrast",
+        "reason": "Slides 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 and 17: text under the WCAG contrast of 4.5:1, or 3:1 for large text.",
+        "level": 0
+      },
+      {
+        "name": "Visual consistency",
+        "reason": "The deck lacks a consistent visual theme, relying on dark backgrounds and varied text presentation.",
+        "level": 0
+      },
+      {
+        "name": "Structure and flow",
+        "reason": "The deck follows a logical flow from introduction to evaluation criteria, but the transition between evaluation criteria and pitch advice could be smoother.",
+        "level": 3
+      }
+    ],
+    "slides": 17,
+    "file": {
+      "sha256": "9942c7b1c9c5165fb7a61a6424bcc919c4cdffa4bd45d431e5865badea195787",
+      "bytes": 2196092
+    }
+  },
+  "alignment": {
+    "coverage_level": 3,
+    "deck_points": 66,
+    "unexplained": 6,
+    "contradictions": 0
+  },
+  "setup": {
+    "model": "google/gemma-4-E2B-it",
+    "dtype": "bfloat16",
+    "slide_tokens": 560,
+    "topics": [
+      "problem",
+      "solution",
+      "customer or market",
+      "alternatives",
+      "business model",
+      "team"
+    ],
+    "code_sha256": "c69cfa4dd817bfa4539d352c3d31a61a7938611e5ad4a4074d8c9b8250ca1b29"
+  }
+}

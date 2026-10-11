@@ -77,7 +77,7 @@ Requirement 3 rests on it, and the official documentation lists only speech reco
 - [x] Keep results when the page is reloaded. They are still lost when the tab closes, and a running check is lost on reload.
 - [x] Redesign the landing page and the upload cards (feature list, step numbers, illustrated how-it-works).
 - [x] State the privacy first, organizer-hosted deployment on the landing page, beside the uploads, in the FAQ and in the footer.
-- [ ] Bring the results views into the new design. The tabbed results workspace from the redesign (`analysis-results.tsx`) showed only the recording and labelled emotions, so the merge dropped it; its styles are still in `pitch-workspace.css`.
+- [x] Bring the results views into the new design: a compact overview with up to five metrics and a "SHOW MORE" modal for the full pitch, deck and comparison reports and verdict downloads. Uploaded recordings use a compact file card without a video thumbnail; the event time-limit field hides after pitch analysis.
 
 ## 7. Demo and pitch evidence
 

@@ -1,16 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
-
-import { AlignmentResults } from "@/components/alignment-results";
+import { AnalysisOverview } from "@/components/analysis-overview";
 import type { AnalysisStatus } from "@/components/analysis-progress";
 import { AudioAnalyzer } from "@/components/audio-analyzer";
 import { CombinedPitchCheck } from "@/components/combined-pitch-check";
-import { DeckResults } from "@/components/deck-results";
 import { DeckUploader } from "@/components/deck-uploader";
-import { PitchResults } from "@/components/pitch-results";
-import { VerdictCard } from "@/components/verdict-card";
 import type { AudioAnalysis, DeckAnalysis, PitchCheck } from "@/lib/analysis";
 import { type Results, showResults, useResults } from "@/lib/results-store";
 import { runAnalysis } from "@/lib/run-analysis";
@@ -90,7 +85,7 @@ export function PitchWorkspace() {
     requestAnimationFrame(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
-  const { pitch, slides, alignment } = results;
+  const { pitch, slides } = results;
   // A new file makes its own result stale, and with it the comparison and any sample on show
   const drop = (part: "pitch" | "slides"): Results =>
     results.sample ? { pitch: null, slides: null } : part === "pitch" ? { pitch: null, slides } : { pitch, slides: null };
@@ -116,6 +111,7 @@ export function PitchWorkspace() {
           onAnalyze={analyzePitch}
           timeLimit={timeLimit}
           onTimeLimitChange={setTimeLimit}
+          showTimeLimit={!pitch}
           busy={busy}
           status={statusOf("pitch")}
           error={errors.pitch}
@@ -152,34 +148,7 @@ export function PitchWorkspace() {
         </button>
       </p>
       {(pitch || slides) && (
-        <div className="analysis-results" id="results">
-          <div className="results-intro">
-            <Sparkles aria-hidden="true" className="size-5" />
-            <h3>Your pitch, a little clearer.</h3>
-          </div>
-          {results.sample && (
-            <p className="results-sample-note">
-              This is a saved example, not your pitch: a real run of the check on a test recording made
-              with a synthetic voice and on a deck made for the test. Add your own files above to
-              replace it.
-            </p>
-          )}
-          {alignment !== undefined && (
-            <div className="results-alignment">
-              <AlignmentResults alignment={alignment} />
-            </div>
-          )}
-          <div className={`results-grid${pitch && slides ? "" : " is-single"}`}>
-            {pitch && <PitchResults result={pitch} />}
-            {slides && <DeckResults result={slides} />}
-          </div>
-          {/* Only after a combined check: the verdict covers both files of one run. An older service sends no fingerprints. */}
-          {!results.sample && alignment !== undefined && pitch?.file && slides?.file && (
-            <div className="results-verdict">
-              <VerdictCard check={{ pitch, deck: slides, alignment }} />
-            </div>
-          )}
-        </div>
+        <AnalysisOverview results={results} />
       )}
     </>
   );

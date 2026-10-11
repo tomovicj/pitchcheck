@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ArrowUpRight, AudioLines, Check, Info, Loader2, Sparkles } from "lucide-react";
 
 import { AnalysisProgress, type AnalysisStatus } from "@/components/analysis-progress";
@@ -14,6 +14,7 @@ type AudioAnalyzerProps = {
   // The event's limit for the pitch in minutes, as typed; empty when the event has none
   timeLimit: string;
   onTimeLimitChange: (minutes: string) => void;
+  showTimeLimit: boolean;
   // An analysis is running, this one or another: files and buttons are locked
   busy: boolean;
   // Progress of this card's own analysis
@@ -22,16 +23,9 @@ type AudioAnalyzerProps = {
 };
 
 export function AudioAnalyzer({
-  file, onSelect, onRemove, onAnalyze, timeLimit, onTimeLimitChange, busy, status, error,
+  file, onSelect, onRemove, onAnalyze, timeLimit, onTimeLimitChange, showTimeLimit, busy, status, error,
 }: AudioAnalyzerProps) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [invalid, setInvalid] = useState<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
 
   function selectFile(next: File) {
     if (busy) return;
@@ -44,19 +38,16 @@ export function AudioAnalyzer({
       setInvalid("This recording is empty. Please choose a file with content.");
       return;
     }
-    setPreviewUrl(URL.createObjectURL(next));
     setInvalid(null);
     onSelect(next);
   }
 
   function removeFile() {
     if (busy) return;
-    setPreviewUrl(null);
     setInvalid(null);
     onRemove();
   }
 
-  const isVideo = !!file && (file.type.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi)$/i.test(file.name));
   const message = invalid ?? error;
 
   return (
@@ -79,12 +70,7 @@ export function AudioAnalyzer({
         disabled={busy}
         kind="recording"
       />
-      {file && previewUrl && (isVideo ? (
-        <video controls src={previewUrl} className="media-preview" />
-      ) : (
-        <audio controls src={previewUrl} className="media-preview" />
-      ))}
-      <label className="checker-field" htmlFor="time-limit">
+      {showTimeLimit && <label className="checker-field" htmlFor="time-limit">
         <span>Time limit at your event</span>
         <input
           id="time-limit"
@@ -98,7 +84,7 @@ export function AudioAnalyzer({
           disabled={busy}
         />
         <span>minutes · optional</span>
-      </label>
+      </label>}
       <div className="checker-actions">
         <button type="button" onClick={onAnalyze} disabled={!file || busy} className="pill-button">
           {status ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}

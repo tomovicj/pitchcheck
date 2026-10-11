@@ -6,7 +6,7 @@ Built for the GDG Belgrade DevFest hackathon, whose theme is "Reimagine the Even
 
 > **Status on 11 October 2026.** The app takes a recording of the pitch and the deck as a PDF. Gemma 4 E2B listens to the recording in segments of up to 20 seconds and reads every slide. It returns a pitch score, a slide score, insights and feedback, and a report on whether the talk follows the deck. All of it has run end to end with the real model, but only on synthetic material: a text-to-speech voice and a deck made for the test. Whether Gemma reliably hears tone of voice has not been tested on real recordings, and the rubrics have not been tried on real pitches. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
 
-The page has one workspace with two upload cards. Each card runs its own check, and the "Check pitch + deck" button below them runs both and compares them. Design notes and component specifications for the landing page are in `docs/research/`.
+The page has one workspace with two upload cards. Each card runs its own check, and the "Check pitch + deck" button below them runs both and compares them. Selected recordings appear as compact file cards without a video preview. Results show up to five main metrics, including the pitch and slide scores; "SHOW MORE" opens the full reports and verdict downloads in a modal. The event time-limit field hides once the pitch result is available. Design notes and component specifications for the landing page are in `docs/research/`.
 
 ## Requirements
 
@@ -257,6 +257,7 @@ Measured on one laptop CPU (16 threads, 12 GB for the Docker VM, bf16 weights): 
 | --- | --- |
 | `src/app/page.tsx` | The landing page |
 | `src/components/pitch-workspace.tsx` | Owns the two files, runs the three checks and lays out the results |
+| `src/components/analysis-overview.tsx`, `analysis-overview.css` | Compact results overview and modal with the full reports and verdict downloads |
 | `src/components/audio-analyzer.tsx`, `deck-uploader.tsx`, `combined-pitch-check.tsx` | The recording card, the deck card and the combined button |
 | `src/components/pitch-results.tsx`, `deck-results.tsx`, `alignment-results.tsx` | The results views |
 | `src/components/verdict-card.tsx`, `src/lib/verdict.ts` | Builds and downloads the verdict and the proof after a combined check |

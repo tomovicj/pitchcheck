@@ -166,6 +166,9 @@ export type PitchCheck = {
 
 export type AnalysisStage = "measuring" | "listening" | "scoring" | "reading" | "reviewing" | "aligning";
 
+// Upload progress is measured in the browser; analysis progress comes from the service.
+export type ProgressStage = AnalysisStage | "uploading" | "preparing";
+
 export type AnalysisEvent<Result> =
   | { type: "progress"; stage: AnalysisStage; progress: number }
   | { type: "result"; data: Result }
