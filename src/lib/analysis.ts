@@ -24,8 +24,13 @@ export type SegmentObservation = {
   pace?: "slow" | "conversational" | "fast";
   filler_words?: string[];
   topics?: string[];
+  // Short statements of what the speaker says, used to compare the speech with the deck
+  key_points?: string[];
   observations?: string;
 };
+
+// Rubric level from 0 to 4, with the measurement or the observation it rests on
+export type Criterion = { name: string; level: number; reason?: string };
 
 export type Segment = {
   start_s: number;
@@ -40,8 +45,8 @@ export type Segment = {
 export type PitchSummary = {
   // 0-100 in steps of 5, computed from the criterion levels; null when no criterion got a valid level
   pitch_score?: number | null;
-  // Rubric level from 0 to 4: given by Gemma, except filler words, which follow from the count it heard
-  criteria?: { name: string; level: number; reason?: string }[];
+  // Levels given by Gemma, except filler words, which follow from the count it heard
+  criteria?: Criterion[];
   // Expected pitch topics that Gemma did not find in any segment
   missing_topics?: string[];
   insights?: string[];
@@ -59,9 +64,80 @@ export type AudioAnalysis = {
   summary: PitchSummary | null;
 };
 
-export type AnalysisStage = "measuring" | "listening" | "scoring";
+// Read from the PDF file; sizes are a share of the slide height
+export type SlideMeasurements = {
+  words: number;
+  characters: number;
+  smallest_text_pct: number;
+  largest_text_pct: number;
+  small_text_share: number;
+  // null when the text colour or its surroundings could not be read
+  low_contrast_share: number | null;
+  lowest_contrast: number | null;
+  fonts: Record<string, number>;
+};
 
-export type AnalysisEvent =
+// What Gemma reports after reading one slide
+export type SlideObservation = {
+  title?: string;
+  message?: string;
+  message_count?: "one" | "several";
+  topics?: string[];
+  key_points?: string[];
+  observations?: string;
+};
+
+export type Slide = {
+  number: number;
+  // null for a page without a text layer
+  measurements: SlideMeasurements | null;
+  // null when Gemma's reply did not parse; raw holds the reply then
+  observations: SlideObservation | null;
+  raw?: string;
+};
+
+export type DeckSummary = {
+  // 0-100 in steps of 5, computed from the criterion levels; null when no criterion could be rated
+  slide_score: number | null;
+  // Gemma gives the levels for consistency and structure; the rest follow from counts and measurements
+  criteria: Criterion[];
+  insights: string[];
+  feedback: { slide: number | null; text: string }[];
+};
+
+export type DeckAnalysis = {
+  model: string;
+  page_count: number;
+  pages_analyzed: number;
+  text_layer: boolean;
+  measurements: { words_median: number; words_max: number; smallest_text_pct: number; fonts: string[] } | null;
+  // For each expected topic, the slides that explain it; null when Gemma gave no such map
+  topic_slides: Record<string, number[]> | null;
+  slides: Slide[];
+  summary: DeckSummary | null;
+};
+
+// Whether the speech follows the deck; a report next to the two scores, not part of either
+export type Alignment = {
+  deck_points: number;
+  unexplained: { slide: number; point: string }[];
+  // 0-4, from the share of the deck's key points the speech never explains
+  coverage_level: number;
+  contradictions: { slide: number | null; at_s: number | null; slide_says: string; speaker_says: string }[];
+  summary: string;
+  recommendations: string[];
+};
+
+export type PitchCheck = {
+  pitch: AudioAnalysis;
+  deck: DeckAnalysis;
+  // null when the speech and the deck could not be compared
+  alignment: Alignment | null;
+};
+
+export type AnalysisStage = "measuring" | "listening" | "scoring" | "reading" | "reviewing" | "aligning";
+
+export type AnalysisEvent<Result> =
   | { type: "progress"; stage: AnalysisStage; progress: number }
-  | { type: "result"; data: AudioAnalysis }
+  | { type: "result"; data: Result }
   | { type: "error"; message: string };

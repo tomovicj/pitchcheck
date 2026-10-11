@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from typing import TypeVar
 
 import numpy as np
 import parselmouth
@@ -20,6 +21,8 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from transformers import AutoModelForMultimodalLM, AutoProcessor, GenerationConfig
 from transformers.generation.streamers import BaseStreamer
+
+from app import alignment, deck, rubric
 
 SAMPLE_RATE = 16_000
 GEMMA_MODEL = os.getenv("GEMMA_MODEL", "google/gemma-4-E2B-it")
@@ -34,9 +37,7 @@ MIN_SEGMENT_S = 1.0
 PAUSE_THRESHOLD_S = 0.5
 # Frames this far below the loudest one count as silence
 SILENCE_BELOW_PEAK_DB = 25.0
-
-# Topics a pitch is expected to explain; the rubric checks that they are covered, not whether they are good
-PITCH_TOPICS = ["problem", "solution", "customer or market", "alternatives", "business model", "team"]
+MAX_DECK_BYTES = 50 * 2**20
 
 # Rated in code from the filler words Gemma heard: the level is arithmetic on the count, and Gemma
 # did not apply the numeric limits reliably when asked to
@@ -89,6 +90,9 @@ RUBRIC = {
         "almost no expected topic is explained, and there is no opening or closing",
     ],
 }
+GEMMA_CRITERIA = [name for name in RUBRIC if name != FILLER_CRITERION]
+
+T = TypeVar("T")
 
 models = {}
 analysis_lock = threading.Lock()
@@ -261,10 +265,11 @@ class GenerationTiming(BaseStreamer):
         logger.info("Gemma generated %s tokens total in %.1fs", self.tokens, time.monotonic() - self.started)
 
 
-def generate(messages: list[dict]) -> str:
+def generate(messages: list[dict], **processor_kwargs) -> str:
     processor, model = models["processor"], models["gemma"]
     inputs = processor.apply_chat_template(
-        messages, tokenize=True, return_dict=True, return_tensors="pt", add_generation_prompt=True
+        messages, tokenize=True, return_dict=True, return_tensors="pt", add_generation_prompt=True,
+        processor_kwargs=processor_kwargs,
     ).to(model.device, dtype=model.dtype)
     with torch.inference_mode():
         output = model.generate(**inputs, generation_config=models["generation_config"], streamer=GenerationTiming())
@@ -272,15 +277,18 @@ def generate(messages: list[dict]) -> str:
     return processor.decode(output[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
 
 
-def ask_gemma(content: list[dict]) -> tuple[dict | None, str]:
-    """Send one user turn and parse a JSON object from the reply, retrying once if it does not parse."""
+def ask_gemma(content: list[dict], **processor_kwargs) -> tuple[dict | None, str]:
+    """Send one user turn and parse a JSON object from the reply, retrying once if it does not parse.
+
+    processor_kwargs go to the Gemma processor, e.g. images_kwargs for the visual token budget.
+    """
     raw = ""
     for attempt in range(2):
         if attempt:
             content = [*content, {"type": "text", "text": "Your previous reply was not valid JSON. Return only the JSON object."}]
         started = time.monotonic()
         logger.info("Gemma generation started (attempt %s)", attempt + 1)
-        raw = generate([{"role": "user", "content": content}])
+        raw = generate([{"role": "user", "content": content}], **processor_kwargs)
         logger.info("Gemma generation finished in %.1fs", time.monotonic() - started)
         if (parsed := parse_json(raw)) is not None:
             return parsed, raw
@@ -320,7 +328,8 @@ Reply with only a JSON object in this shape:
 {{"tone": "how the voice sounds: pitch movement, loudness, steadiness",
  "pace": "slow" | "conversational" | "fast",
  "filler_words": ["every filler word or sound in the order you hear it, repeated each time it is said, e.g. um, uh, um, like"],
- "topics": ["each of these topics that this segment explains, named exactly as here: {topics}"],
+ "topics": ["the name of each topic this segment explains, from: {topics}"],
+ "key_points": ["up to 4 short statements of what the speaker says in this segment, keeping numbers and names as spoken"],
  "observations": "one or two sentences on what works and what does not in this delivery"}}"""
 
 
@@ -330,7 +339,7 @@ def observe_segment(clip: np.ndarray, start: float, end: float, measurements: di
         end=format_time(end),
         no_state=NO_STATE,
         measurements=describe_measurements(measurements, pause_ratio),
-        topics=", ".join(PITCH_TOPICS),
+        topics=rubric.TOPIC_GUIDE,
     )
     # Audio after the text, as recommended for Gemma 4
     observations, raw = ask_gemma([{"type": "text", "text": prompt}, {"type": "audio", "audio": clip}])
@@ -359,34 +368,12 @@ Reply with only a JSON object in this shape:
 Give 3 to 5 feedback items. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch."""
 
 
-def describe_rubric() -> str:
-    """The criteria Gemma rates, with their level descriptions."""
-    lines = []
-    for name, levels in RUBRIC.items():
-        if name != FILLER_CRITERION:
-            lines.append(f"- {name}")
-            lines.extend(f"  {4 - i}: {description}" for i, description in enumerate(levels))
-    return "\n".join(lines)
-
-
 def count_fillers(segments: list[dict], duration: float) -> dict:
     count = 0
     for s in segments:
         fillers = (s["observations"] or {}).get("filler_words")
         count += len(fillers) if isinstance(fillers, list) else 0
     return {"count": count, "per_minute": round(count / (duration / 60), 1)}
-
-
-def split_topics(segments: list[dict]) -> tuple[list[str], list[str]]:
-    """The expected topics that Gemma heard explained in some segment, and the ones it heard in none."""
-    heard = set()
-    for s in segments:
-        topics = (s["observations"] or {}).get("topics")
-        if isinstance(topics, list):
-            heard.update(t.strip().lower() for t in topics if isinstance(t, str))
-    # "customer" or "market" alone counts for "customer or market"
-    covered = [t for t in PITCH_TOPICS if heard & {t, *t.split(" or ")}]
-    return covered, [t for t in PITCH_TOPICS if t not in covered]
 
 
 def rate_fillers(fillers: dict) -> dict:
@@ -402,19 +389,13 @@ def rate(criteria: object, fillers: dict | None) -> tuple[list[dict], int | None
 
     Equal weights; a criterion without a valid level drops out of the score instead of counting as 0.
     """
-    rated = {}
-    for c in criteria if isinstance(criteria, list) else []:
-        name = c.get("name") if isinstance(c, dict) else None
-        if isinstance(name, str) and name in RUBRIC and name != FILLER_CRITERION and c.get("level") in range(5):
-            rated[name] = {**c, "level": int(c["level"])}
+    rated = rubric.gemma_levels(criteria, GEMMA_CRITERIA)
     # No score from the filler count alone when Gemma rated nothing
     if not rated:
         return [], None
     if fillers is not None:
         rated[FILLER_CRITERION] = rate_fillers(fillers)
-    ordered = [rated[name] for name in RUBRIC if name in rated]
-    share = sum(c["level"] for c in ordered) / (4 * len(ordered))
-    return ordered, round(share * 20) * 5
+    return rubric.total(RUBRIC, rated)
 
 
 def score_pitch(duration: float, prosody: dict | None, pauses: dict, fillers: dict, segments: list[dict]) -> dict | None:
@@ -422,7 +403,7 @@ def score_pitch(duration: float, prosody: dict | None, pauses: dict, fillers: di
     for s in segments:
         observations = json.dumps(s["observations"]) if s["observations"] else "(no observations)"
         described.append(f"- {format_time(s['start_s'])}-{format_time(s['end_s'])} (starts at {s['start_s']}s): {observations}")
-    covered, missing = split_topics(segments)
+    covered, missing = rubric.split_topics([(s["observations"] or {}).get("topics") for s in segments])
     prompt = SCORE_PROMPT.format(
         no_state=NO_STATE,
         duration=format_time(duration),
@@ -433,7 +414,7 @@ def score_pitch(duration: float, prosody: dict | None, pauses: dict, fillers: di
         covered=", ".join(covered) or "none",
         missing=", ".join(missing) or "none",
         segments="\n".join(described),
-        rubric=describe_rubric(),
+        rubric=rubric.describe(RUBRIC, GEMMA_CRITERIA),
     )
     summary, _ = ask_gemma([{"type": "text", "text": prompt}])
     if summary is not None:
@@ -526,23 +507,51 @@ def analyze(file: UploadFile | None = File(None)):
         analysis_lock.release()
 
 
-@app.post("/analyze/stream")
-def analyze_stream(file: UploadFile | None = File(None)):
-    """Same as /analyze, but streams NDJSON progress events before the result."""
+def load_deck(file: UploadFile | None) -> tuple[int, list[dict]]:
+    """Page count and the rendered, measured pages of an uploaded PDF deck."""
+    if file is None:
+        raise HTTPException(400, "No deck uploaded")
+    data = file.file.read(MAX_DECK_BYTES + 1)
+    if len(data) > MAX_DECK_BYTES:
+        raise HTTPException(413, f"The deck is larger than {MAX_DECK_BYTES // 2**20} MB")
+    if b"%PDF" not in data[:1024]:
+        raise HTTPException(400, "The deck must be a PDF file")
+    try:
+        return deck.read_pdf(data)
+    except deck.UnreadablePdf as error:
+        raise HTTPException(400, str(error)) from error
+
+
+def run_deck_analysis(page_count: int, pages: list[dict], report: Callable[[str, float], None]) -> dict:
+    return {"model": GEMMA_MODEL, **deck.run_analysis(page_count, pages, ask_gemma, report)}
+
+
+def run_check(audio: np.ndarray, page_count: int, pages: list[dict], report: Callable[[str, float], None]) -> dict:
+    """The pitch, then the deck, then whether the pitch follows the deck."""
+    pitch = run_analysis(audio, lambda stage, p: report(stage, 0.45 * p))
+    slides = run_deck_analysis(page_count, pages, lambda stage, p: report(stage, 0.45 + 0.45 * p))
+    report("aligning", 0.9)
+    logger.info("Comparing the speech with the deck")
+    return {"pitch": pitch, "deck": slides, "alignment": alignment.run(ask_gemma, slides["slides"], pitch["segments"])}
+
+
+def reserved(load: Callable[[], T]) -> T:
+    """Take the analysis lock and load the upload, giving the lock back if loading fails."""
     reserve_analysis()
     try:
-        audio = load_upload(file)
+        return load()
     except BaseException:
         analysis_lock.release()
         raise
+
+
+def stream(job: Callable[[Callable[[str, float], None]], dict]) -> StreamingResponse:
+    """Run job in a thread and stream NDJSON progress events before its result. Gives the analysis lock back when done."""
     events = queue.Queue()
 
     def work():
         try:
-            result = run_analysis(
-                audio,
-                lambda stage, p: events.put({"type": "progress", "stage": stage, "progress": round(p, 3)}),
-            )
+            result = job(lambda stage, p: events.put({"type": "progress", "stage": stage, "progress": round(p, 3)}))
             events.put({"type": "result", "data": result})
         except Exception:
             events.put({"type": "error", "message": "Analysis failed"})
@@ -551,9 +560,30 @@ def analyze_stream(file: UploadFile | None = File(None)):
             analysis_lock.release()
             events.put(None)
 
-    def stream():
+    def lines():
         threading.Thread(target=work, daemon=True).start()
         while (event := events.get()) is not None:
             yield json.dumps(event) + "\n"
 
-    return StreamingResponse(stream(), media_type="application/x-ndjson")
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
+@app.post("/analyze/stream")
+def analyze_stream(file: UploadFile | None = File(None)):
+    """Same as /analyze, but streams NDJSON progress events before the result."""
+    audio = reserved(lambda: load_upload(file))
+    return stream(lambda report: run_analysis(audio, report))
+
+
+@app.post("/deck/stream")
+def deck_stream(file: UploadFile | None = File(None)):
+    """Analyze a PDF deck, streaming NDJSON progress events before the result."""
+    page_count, pages = reserved(lambda: load_deck(file))
+    return stream(lambda report: run_deck_analysis(page_count, pages, report))
+
+
+@app.post("/check/stream")
+def check_stream(recording: UploadFile | None = File(None), slides: UploadFile | None = File(None, alias="deck")):
+    """Analyze a recording and its deck together and compare them; fields are `recording` and `deck`."""
+    audio, (page_count, pages) = reserved(lambda: (load_upload(recording), load_deck(slides)))
+    return stream(lambda report: run_check(audio, page_count, pages, report))

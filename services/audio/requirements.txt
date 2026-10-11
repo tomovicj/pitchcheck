@@ -11,3 +11,5 @@ torch
 # The Gemma 4 processor imports its image and video parts even for audio-only input
 torchvision
 pillow
+# Renders deck pages for Gemma and reads text sizes, fonts and colours from the PDF
+pypdfium2

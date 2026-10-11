@@ -1,79 +1,91 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Info, PanelsTopLeft } from "lucide-react";
+import { ArrowUpRight, ExternalLink, Info, Loader2, PanelsTopLeft } from "lucide-react";
+
+import { AnalysisProgress, type AnalysisStatus } from "@/components/analysis-progress";
 import { UploadDropzone } from "@/components/upload-dropzone";
 
 const MAX_DECK_SIZE = 25 * 1024 * 1024;
 
-type SelectedDeck = {
-  file: File;
-  previewUrl: string;
+type DeckUploaderProps = {
+  file: File | null;
+  onSelect: (file: File) => void;
+  onRemove: () => void;
+  onAnalyze: () => void;
+  // An analysis is running, this one or another: files and buttons are locked
+  busy: boolean;
+  // Progress of this card's own analysis
+  status: AnalysisStatus | null;
+  error?: string;
 };
 
-export function DeckUploader({ disabled = false }: { disabled?: boolean }) {
-  const [selection, setSelection] = useState<SelectedDeck | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function DeckUploader({ file, onSelect, onRemove, onAnalyze, busy, status, error }: DeckUploaderProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState<string | null>(null);
   const validationId = useRef(0);
 
   useEffect(() => {
-    const previewUrl = selection?.previewUrl;
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
-  }, [selection?.previewUrl]);
+  }, [previewUrl]);
 
   useEffect(() => () => {
     validationId.current += 1;
   }, []);
 
-  async function selectFile(file: File) {
-    if (disabled) return;
+  async function selectFile(next: File) {
+    if (busy) return;
 
     const currentValidation = ++validationId.current;
-    setError(null);
+    setInvalid(null);
 
-    if (!/\.pdf$/i.test(file.name) || !["", "application/pdf", "application/x-pdf"].includes(file.type.toLowerCase())) {
-      setError("Please choose a PDF presentation (.pdf).");
+    if (!/\.pdf$/i.test(next.name) || !["", "application/pdf", "application/x-pdf"].includes(next.type.toLowerCase())) {
+      setInvalid("Please choose a PDF presentation (.pdf).");
       return;
     }
-    if (file.size === 0) {
-      setError("This PDF is empty. Please choose a presentation with content.");
+    if (next.size === 0) {
+      setInvalid("This PDF is empty. Please choose a presentation with content.");
       return;
     }
-    if (file.size > MAX_DECK_SIZE) {
-      setError("This PDF is too large. Please choose a file of 25 MB or less.");
+    if (next.size > MAX_DECK_SIZE) {
+      setInvalid("This PDF is too large. Please choose a file of 25 MB or less.");
       return;
     }
 
     try {
-      const header = new TextDecoder().decode(await file.slice(0, 1024).arrayBuffer());
+      const header = new TextDecoder().decode(await next.slice(0, 1024).arrayBuffer());
       if (currentValidation !== validationId.current) return;
       if (!header.includes("%PDF-")) {
-        setError("This file does not appear to be a PDF. Please export your presentation as a PDF and try again.");
+        setInvalid("This file does not appear to be a PDF. Please export your presentation as a PDF and try again.");
         return;
       }
 
-      const preview = new Blob([file], { type: "application/pdf" });
-      setSelection({ file, previewUrl: URL.createObjectURL(preview) });
+      setPreviewUrl(URL.createObjectURL(new Blob([next], { type: "application/pdf" })));
+      onSelect(next);
     } catch {
       if (currentValidation === validationId.current) {
-        setError("We couldn't read this PDF. Please choose the file again.");
+        setInvalid("We couldn't read this PDF. Please choose the file again.");
       }
     }
   }
 
   function removeFile() {
+    if (busy) return;
     validationId.current += 1;
-    setSelection(null);
-    setError(null);
+    setPreviewUrl(null);
+    setInvalid(null);
+    onRemove();
   }
+
+  const message = invalid ?? error;
 
   return (
     <article id="pitch-deck" className="checker-card deck-checker">
       <div className="checker-heading">
         <span className="checker-icon"><PanelsTopLeft aria-hidden="true" /></span>
-        <span className="status-pill coming-soon">COMING SOON</span>
+        <span className="status-pill">READY TO CHECK</span>
       </div>
       <p className="checker-kicker">02 / THE STORY</p>
       <h3>Pitch deck checker.</h3>
@@ -83,31 +95,32 @@ export function DeckUploader({ disabled = false }: { disabled?: boolean }) {
         accept="application/pdf,.pdf"
         title="Drop your pitch deck here"
         hint="PDF presentation · up to 25 MB"
-        file={selection?.file ?? null}
+        file={file}
         onSelect={selectFile}
         onRemove={removeFile}
-        disabled={disabled}
+        disabled={busy}
         kind="deck"
       />
-      {error && <p className="checker-error" role="alert">{error}</p>}
-      {selection && (
-        <div className="checker-actions">
-          <a className="pill-button pill-secondary" href={selection.previewUrl} target="_blank" rel="noopener noreferrer">
+      <div className="checker-actions">
+        <button type="button" onClick={onAnalyze} disabled={!file || busy} className="pill-button">
+          {status ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
+          {status ? "Reading your slides…" : "Check my slides"}
+          {!status && <ArrowUpRight aria-hidden="true" />}
+        </button>
+        {file && previewUrl ? (
+          <a className="pill-button pill-secondary" href={previewUrl} target="_blank" rel="noopener noreferrer">
             Preview PDF <ExternalLink aria-hidden="true" />
           </a>
-          <span>Stored in this browser only.</span>
-        </div>
-      )}
-      {!selection && (
-        <div className="checker-actions">
-          <span className="deck-placeholder">Slide analysis coming soon</span>
-          <span>Upload &amp; preview available</span>
-        </div>
-      )}
+        ) : (
+          <span>Feedback powered by Gemma</span>
+        )}
+      </div>
       <p className="checker-note">
         <Info aria-hidden="true" />
-        <span>PDF upload and preview are ready. Slide scoring will be connected in the next step.</span>
+        <span>Gemma reads every slide. Text size, word count and contrast are measured from the PDF.</span>
       </p>
+      {status && <AnalysisProgress status={status} />}
+      {message && <p className="checker-error" role="alert">{message}</p>}
     </article>
   );
 }
