@@ -106,7 +106,8 @@ export type PitchSummary = {
   // Every statement with its label; Gemma's replies as text when they could not be used
   labelled: LabelledStatement[] | string[];
   insights: string[];
-  feedback: { at_s: number | null; text: string }[];
+  // One item for each of the weakest criteria, lowest first; criterion names the one it answers
+  feedback: { at_s: number | null; text: string; criterion?: string }[];
 };
 
 export type AudioAnalysis = {
@@ -173,7 +174,8 @@ export type DeckSummary = {
   // Every line with its label; Gemma's replies as text when they could not be used
   labelled: LabelledStatement[] | string[];
   insights: string[];
-  feedback: { slide: number | null; text: string }[];
+  // One item for each of the weakest criteria, lowest first; criterion names the one it answers
+  feedback: { slide: number | null; text: string; criterion?: string }[];
 };
 
 export type DeckAnalysis = {

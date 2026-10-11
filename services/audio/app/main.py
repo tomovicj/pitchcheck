@@ -468,25 +468,26 @@ def observe_segment(clip: np.ndarray, start: float, end: float, measurements: di
 # How the labelling prompt names a spoken pitch; see rubric.LABEL_PROMPT
 SPEECH = {"kind": "spoken startup pitch", "heard": "What the speaker said, in order, as you heard it"}
 
-FEEDBACK_PROMPT = """You are a presentation coach giving feedback on a startup pitch. It was rated against a fixed rubric, each criterion on a level from 0 (worst) to 4 (best). Comment on what the pitch says and on how it is delivered, never on the business idea or its market potential.
+# Findings the feedback is written about, the weakest criteria first
+MAX_FEEDBACK = 5
+
+# The prompt carries the rated findings and what was said, and no signal measurements: with those in it
+# Gemma wrote feedback about them instead, such as a higher "voiced share of frames".
+FEEDBACK_PROMPT = """You are a presentation coach writing feedback for a team on its startup pitch. The pitch was rated against a fixed rubric. Comment on what the pitch says and on how it is delivered, never on the business idea or its market potential.
 {no_state}
 
-Whole recording: {duration}.
-{measurements}
-Pauses: {pauses}
-
-What you heard in each segment:
+The recording is {duration} long. What the speaker said, as you heard it:
 {segments}
 
-What the rating found to improve, the lowest level first:
+What the rating found to improve, the most serious first:
 {findings}
 
-At the top level, with nothing to change: {strengths}.
+Rated at the top level, with nothing to change: {strengths}.
 
 Reply with only a JSON object in this shape:
-{{"insights": ["what the analysis found, 3 to 5 short statements"],
- "feedback": [{{"at_s": 0, "text": "one concrete thing to change"}}]}}
-Give one feedback item for each finding above, in the same order, at most 5: name the number that was measured or the topic that is missing, and say what to do about it. Write for the team: say what to change, and do not mention levels or the names of criteria. Give no feedback on what is at the top level. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
+{{"insights": ["what the rating found, 3 to 5 short statements, the weak points and the strong ones"],
+ "feedback": [{{"finding": 1, "at_s": 0, "text": "one concrete thing to change"}}]}}
+Write one feedback item for each numbered finding, and for nothing else. In each, name the number that was measured or the topic that is missing, and say what the team should do about it. Do not mention levels or the names of criteria. Set finding to the number of the finding, and at_s to the second in the recording the item refers to, or null if it applies to the whole pitch.
 A voice whose pitch moves and whose loudness stays easy to hear helps a listener: never advise a flatter or more even pitch."""
 
 
@@ -644,25 +645,17 @@ def score_pitch(
     # The score is arithmetic over the levels, so the same levels always give the same score
     criteria, score, subscores = rubric.total(RUBRIC, rated, GROUP_WEIGHTS)
 
-    described = []
-    for s in segments:
-        observations = json.dumps(s["observations"]) if s["observations"] else "(no observations)"
-        described.append(f"- {span(s)} (starts at {s['start_s']}s): {observations}")
+    weak = rubric.weakest(criteria, MAX_FEEDBACK)
     prompt = FEEDBACK_PROMPT.format(
         no_state=NO_STATE,
         duration=format_time(duration),
-        measurements=describe_measurements(prosody),
-        pauses=json.dumps(pauses),
-        segments="\n".join(described),
-        **rubric.findings(criteria),
+        segments="\n".join(
+            f"- {span(s)} (starts at {round(s['start_s'])}s): {' '.join(statements(s)) or '(nothing heard)'}" for s in segments
+        ),
+        **rubric.describe_findings(weak, criteria),
     )
     reply, _ = ask_gemma([{"type": "text", "text": prompt}])
     reply = reply or {}
-    feedback = [
-        {"at_s": f.get("at_s") if type(f.get("at_s")) in (int, float) else None, "text": f["text"].strip()}
-        for f in (reply.get("feedback") if isinstance(reply.get("feedback"), list) else [])
-        if isinstance(f, dict) and isinstance(f.get("text"), str) and f["text"].strip()
-    ]
     return {
         "pitch_score": score,
         # The 0-100 score of each group of criteria: what the pitch says, and how it is delivered
@@ -673,7 +666,7 @@ def score_pitch(
         # Every statement with the label Gemma gave it, for checking the labels; its replies when they could not be used
         "labelled": labelled,
         "insights": rubric.strings(reply.get("insights"), 5),
-        "feedback": feedback[:5],
+        "feedback": rubric.feedback(reply, weak, "at_s", (int, float)),
     }
 
 

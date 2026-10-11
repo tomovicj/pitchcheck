@@ -56,7 +56,10 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                             {formatTime(item.at_s)}
                           </Badge>
                         )}
-                        <span>{item.text}</span>
+                        <span>
+                          {item.criterion && <span className="font-medium">{item.criterion}: </span>}
+                          {item.text}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -106,7 +109,10 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                             {formatTime(item.at_s)}
                           </Badge>
                         )}
-                        <span>{item.text}</span>
+                        <span>
+                          {item.criterion && <span className="font-medium">{item.criterion}: </span>}
+                          {item.text}
+                        </span>
                       </li>
                     ))}
                   </ul>

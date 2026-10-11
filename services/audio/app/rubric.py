@@ -132,17 +132,42 @@ QUOTED_PER_ITEM = 2
 # topics of each segment.
 LABEL_PROMPT = """You are sorting the statements of a {kind} by what each one tells the audience. Sort only; do not judge the business idea.
 
-{heard}. Each statement has a number in brackets:
-{statements}
-
 Give every statement one label: the line below that describes it, or "none".
 {checklist}
 - none: a greeting, a thank-you, a question, a bare heading such as "Our team", or a statement that fits no line above
 
-A statement gets a label for what it says itself, not for what the statements around it say. When it fits two labels, give the one it says most directly.
+A statement gets a label for what it says itself, not for what the statements around it say. A statement about how things are today, without the product, is the problem, even when it stands between statements about the product. When a statement fits two labels, give the one it says most directly.
 
-Reply with only a JSON object that gives each statement number its label, in this shape:
+An example, from another company:
+{example}
+
+{heard}. Each statement has a number in brackets:
+{statements}
+
+Reply with only a JSON object that gives each statement number its label, as in the example:
 {{"{first}": "<label>", ...and so on for every statement up to "{last}": "<label>"}}"""
+
+# One statement for each default label, in an order a pitch might have them. On the test deck Gemma gave
+# a whole slide about how organizers work today the label of the slides around it, "solution"; the
+# example shows such a statement as the problem. A label an event's own topics do not have becomes none.
+EXAMPLE_STATEMENTS = [
+    ("Hello, we are Velo.", "none"),
+    ("Velo is an app that unlocks any city bike in ten seconds.", OPENING),
+    ("Today a commuter queues at a kiosk for twenty minutes to rent a bike.", "problem"),
+    ("Kiosks close at eight in the evening.", "problem"),
+    ("You scan the code on the bike and ride away.", "solution"),
+    ("There are 40,000 daily commuters in our city.", "market"),
+    ("We launched in May and have 1,200 riders.", "traction"),
+    ("A kiosk cannot move to where the riders are, and a phone can.", "unique insight"),
+    ("A ride costs one euro.", "business model"),
+    ("We are two engineers who ran the city's bike scheme.", "team"),
+    ("We are raising 100,000 euros to add 500 bikes.", "ask"),
+    ("Thank you.", "none"),
+]
+EXAMPLE = "\n".join(
+    [f"  [{chr(97 + i)}] {statement}" for i, (statement, _) in enumerate(EXAMPLE_STATEMENTS)]
+    + [json.dumps({chr(97 + i): label if label in CHECKLIST else "none" for i, (_, label) in enumerate(EXAMPLE_STATEMENTS)})]
+)
 
 
 def label_of(value: object) -> str | None:
@@ -181,7 +206,8 @@ def run_checklist(ask: Ask, groups: list[tuple[str, dict, list[str]]], **wording
                 lines.append(heading)
             lines.append(f"  [{n}] {numbered[n][0]}")
         prompt = LABEL_PROMPT.format(
-            statements="\n".join(lines), checklist=CHECKLIST_GUIDE, first=batch[0], last=batch[-1], **wording
+            statements="\n".join(lines), checklist=CHECKLIST_GUIDE, example=EXAMPLE, first=batch[0], last=batch[-1],
+            **wording,
         )
         reply, raw = ask([{"type": "text", "text": prompt}])
         replies.append(raw)
@@ -192,17 +218,25 @@ def run_checklist(ask: Ask, groups: list[tuple[str, dict, list[str]]], **wording
     if not labels:
         return None, replies
 
+    said = {item: [n for n in sorted(labels) if labels[n] == item] for item in CHECKLIST}
+    if "solution" in PITCH_TOPICS:
+        # Where the one line on what the company does ends and the account of the product begins is not
+        # a line Gemma drew the same way twice: it called a deck's tagline "solution", and "We are
+        # PitchCheck" what it does. So the two labels are read together. The first statement about the
+        # product is where the pitch says what it does, and the product is explained when there is more.
+        product = sorted(said[OPENING] + said["solution"])
+        said[OPENING], said["solution"] = product[:1], product[1:]
+
     checklist = []
-    for item in CHECKLIST:
-        said = [n for n in sorted(labels) if labels[n] == item]
-        with_number = [n for n in said if NUMBER.search(numbered[n][0])]
+    for item, numbers in said.items():
+        with_number = [n for n in numbers if NUMBER.search(numbered[n][0])]
         # Of a topic that needs a number, the statements that carry one are the ones to show
-        shown = sorted((with_number if item in NUMBER_TOPICS and with_number else said)[:QUOTED_PER_ITEM])
+        shown = sorted((with_number if item in NUMBER_TOPICS and with_number else numbers)[:QUOTED_PER_ITEM])
         entry = {
             "item": item,
-            "found": bool(said),
+            "found": bool(numbers),
             "quote": " ".join(numbered[n][0] for n in shown),
-            **(numbered[said[0]][1] if said else {}),
+            **(numbered[numbers[0]][1] if numbers else {}),
         }
         if item in NUMBER_TOPICS:
             entry["number"] = bool(with_number)
@@ -265,20 +299,44 @@ def total(
     return criteria, round(score * 20) * 5, subscores
 
 
-def findings(criteria: list[dict]) -> dict[str, str]:
-    """The rated criteria as the feedback prompts take them.
+def weakest(criteria: list[dict], limit: int) -> list[dict]:
+    """The criteria below the top level, lowest first, at most limit: what the feedback is written about."""
+    return sorted((c for c in criteria if c["level"] < 4), key=lambda c: c["level"])[:limit]
 
-    "findings" lists what is below the top level, lowest first, with what the top level takes;
-    "strengths" names what is at it. Gemma gave feedback on a criterion at the top level when it was
-    shown that criterion's numbers, so those are left out.
-    """
-    weak = sorted((c for c in criteria if c["level"] < 4), key=lambda c: c["level"])
+
+def describe_findings(weak: list[dict], criteria: list[dict]) -> dict[str, str]:
+    """The rated criteria as the feedback prompts take them: the weakest numbered, the rest by name."""
     return {
         "findings": "\n".join(
-            f"- {c['name']}, level {c['level']} of 4: {c['reason']} The top level takes: {c['target']}." for c in weak
+            f"{n}. {c['name']}: {c['reason']} The top level takes: {c['target']}." for n, c in enumerate(weak, start=1)
         ) or "(nothing: every criterion is at the top level)",
         "strengths": ", ".join(c["name"].lower() for c in criteria if c["level"] == 4) or "nothing",
     }
+
+
+def feedback(reply: dict, weak: list[dict], place: str, kinds: tuple[type, ...]) -> list[dict]:
+    """Gemma's feedback, one item for each finding it was given, in the order of the findings.
+
+    Each item carries the name of the criterion it answers. An item that answers no finding is left
+    out: with the signal measurements in its prompt Gemma advised fewer filler words at one a minute,
+    the top level, and a higher "voiced share of frames". place is the key that says where the item
+    applies ("at_s" or "slide") and kinds the types its value may have. When Gemma numbers none of
+    its items, they are kept as they came, one for each finding.
+    """
+    items = [
+        f for f in (reply.get("feedback") if isinstance(reply.get("feedback"), list) else [])
+        if isinstance(f, dict) and isinstance(f.get("text"), str) and f["text"].strip()
+    ]
+    answers = {}
+    for item in items:
+        if type(item.get("finding")) is int and 1 <= item["finding"] <= len(weak):
+            answers.setdefault(item["finding"], item)
+    kept = [(weak[n - 1]["name"], answers[n]) for n in sorted(answers)] or [(None, item) for item in items[: len(weak)]]
+    return [
+        {place: item.get(place) if type(item.get(place)) in kinds else None, "text": item["text"].strip(),
+         **({"criterion": name} if name else {})}
+        for name, item in kept
+    ]
 
 
 def share_levels(problem: str) -> list[str]:

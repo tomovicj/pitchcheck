@@ -45,7 +45,10 @@ function Feedback({ items }: { items: DeckAnalysis["summary"]["feedback"] }) {
               Slide {item.slide}
             </Badge>
           )}
-          <span>{item.text}</span>
+          <span>
+            {item.criterion && <span className="font-medium">{item.criterion}: </span>}
+            {item.text}
+          </span>
         </li>
       ))}
     </ul>

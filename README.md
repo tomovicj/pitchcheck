@@ -32,13 +32,13 @@ Read from the code on the `feature/yc-rubric` branch. "Implemented" means it run
 | Splitting the audio into segments of at most 20 seconds, cut at pauses | Implemented. Gemma accepts up to 30 seconds, but of a 27-second segment it returned only the first two thirds of what was said |
 | Speaking rate, measured from the signal as syllables per second of speaking | Implemented; tried on one synthetic voice at three speeds |
 | Gemma 4 E2B listens to each segment: tone of voice, filler words, and the statements the speaker makes | Implemented; not yet validated on real recordings (TODO section 1) |
-| Checklist for the pitch: Gemma gets the statements it heard as a numbered list and labels each with what it says: what the company does, one of the eight expected topics, or none | Second version. The first, which asked for the statements behind each topic, came back empty with the real model; this one has not run with it yet |
-| Gemma 4 E2B writes the insights and the timestamped feedback from the rated findings, lowest level first | Implemented in the first version; the prompt changed and has not run with the real model since |
+| Checklist for the pitch: Gemma gets the statements it heard as a numbered list and labels each with what it says: what the company does, one of the eight expected topics, or none | Ran with the real model on the test recording: the labels held up. The first version, which asked for the statements behind each topic, had come back empty. The prompt has changed since that run (an example was added) |
+| Gemma 4 E2B writes the insights and one feedback item for each of the weakest criteria, lowest level first | Ran with the real model; it wrote about measurements instead of the findings, so the prompt and the handling of its reply changed and have not run since |
 | Pitch score from nine rubric criteria in two groups, content (opening, topic coverage, numbers, plain language) and delivery (pace, filler words, pauses, pitch variation, loudness), on levels 0 to 4, every level given in code | Written and checked without the model, on the observations saved from a real run; the rubric (`RUBRIC` in `services/audio/app/main.py`) has not been tried on real recordings |
 | Time criterion: the length of the recording against the event's time limit, when the team enters one | Implemented |
 | PDF deck upload; pages rendered to images; text size, words per slide, fonts, contrast, where the largest text sits and the size of the title measured from the file | Implemented; needs a PDF with a text layer for the measurements. PPTX is not accepted |
 | Gemma 4 E2B reads each slide: title, main point, one point or several, key points, legibility | Implemented |
-| Checklist for the deck: the same labels over the titles and key points Gemma read, by slide | As for the pitch |
+| Checklist for the deck: the same labels over the titles and key points Gemma read, by slide | Ran with the real model on the test deck: a slide about the problem was labelled "solution". The prompt was changed for that and has not run since |
 | Slide score from eleven rubric criteria in two groups, content (title slide, topic coverage, numbers, plain language) and design (one message per slide, words per slide, text size, contrast, key text at the top, visual consistency, deck length), on levels 0 to 4, every level given in code | Written and checked without the model, on the test deck and the observations saved from a real run; the rubric (`RUBRIC` in `services/audio/app/deck.py`) has not been tried on real decks |
 | Results in two steps: each card shows the score, the score of each group and the first three things to fix; "Show more" opens the criteria with the standard behind each, the checklist with the statement found for each topic, the insights, the measurements, the timeline and the slide notes | Implemented |
 | Check that the spoken pitch follows the deck: deck points the talk never explains, statements where the two disagree, recommendations | Implemented (`services/audio/app/alignment.py`); a report next to the two scores, not part of either. Reading the slides word for word is not checked |
@@ -72,7 +72,15 @@ Two things led here. Gemma did not apply numeric limits reliably when asked to: 
 
 The question is now a label for each statement, the kind Gemma answered sensibly in the first version when it named the topics of each segment. The shape in the prompt cannot pass for an answer, and every statement comes back in the result with its label (`labelled` in the summary), so a wrong label can be seen.
 
-**What is not tested.** The labelling prompt has not run with the real model yet, so it is still not known how well Gemma 4 E2B sorts the statements. Nothing has been tried on a real pitch or a real deck.
+**The second run**, the same day and on the same files, in 5 minutes 11 seconds. Gemma labelled every statement.
+
+- Pitch, 20 statements: the labels hold up. It found the problem, the product, the customers, the business model and the ask, and found no traction, no team and no unique insight, which is what the test pitch says. Two labels are arguable (a sentence about what organizers fix today got "solution"; "Who buys it?" got "market" though it is a question). The pitch scored 60: content 40, delivery 90.
+- Deck, 31 lines: two labels were wrong in a way that cost points. The four lines of the slide about how organizers work today got "solution", the label of the slides around it, so the problem counted as missing. And the tagline on the title slide got "solution" and no line got "what it does", so the title slide rated 0. The deck scored 55.
+- Feedback: with the signal measurements in its prompt, Gemma advised fewer filler words at one a minute, which is the top level, and a higher "voiced share of frames".
+
+What changed after it: the labelling prompt carries a worked example from another company, with a statement about how things are today labelled as the problem. "What it does" and "solution" are read together: the first statement about the product is where a pitch or a deck says what it does, and the product counts as explained when there is more than that one. A slide title of one or two words is not offered for labelling. And the feedback prompt gets the weakest criteria as numbered findings and no measurements; an item that answers no finding is dropped, and each item on the page names the criterion it is about.
+
+**What is not tested.** The prompts as they are now have not run with the real model. Whether the example cures the wrong labels on the deck is not known, and nothing has been tried on a real pitch or a real deck.
 
 #### Where the standards come from
 

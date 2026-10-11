@@ -388,12 +388,17 @@ def rate_design(slides: list[dict], page_count: int) -> dict[str, dict]:
 
 
 def slide_statements(slide: dict) -> list[str]:
-    """What a slide says, as Gemma read it: the title, then the key points that do not repeat it."""
+    """What a slide says, as Gemma read it: the title, then the key points that do not repeat it.
+
+    A title of one or two words is a heading and is left out: Gemma labelled "Business model" and
+    "The team" with their topics, and a heading with nothing under it would then count as the topic.
+    """
     observations = slide["observations"] or {}
-    said = []
-    for statement in [observations.get("title"), *rubric.strings(observations.get("key_points"), alignment.SLIDE_POINTS)]:
-        if isinstance(statement, str) and statement.strip() and statement.strip().lower() not in [s.lower() for s in said]:
-            said.append(statement.strip())
+    title = observations.get("title")
+    said = [title.strip()] if isinstance(title, str) and len(title.split()) > 2 else []
+    for point in rubric.strings(observations.get("key_points"), alignment.SLIDE_POINTS):
+        if point.lower() not in [s.lower() for s in said]:
+            said.append(point)
     return said
 
 
@@ -488,24 +493,26 @@ def describe_slide(slide: dict) -> str:
 
 # How the labelling prompt names a deck; see rubric.LABEL_PROMPT
 SLIDES = {"kind": "startup pitch deck", "heard": "What each slide says, in order, as you read it"}
+# Findings the feedback is written about, the weakest criteria first
+MAX_FEEDBACK = 6
 
 FEEDBACK_PROMPT = """You are a presentation coach giving feedback on a startup pitch deck. It was rated against a fixed rubric, each criterion on a level from 0 (worst) to 4 (best). Comment on what the deck says and on how it is designed, never on the business idea or its market potential.
 
 The deck has {count} slides. What each slide shows, as you read it earlier, with numbers from the file where it has a text layer:
 {slides}
 
-What the rating found to improve, the lowest level first:
+What the rating found to improve, the most serious first:
 {findings}
 
-At the top level, with nothing to change: {strengths}.
+Rated at the top level, with nothing to change: {strengths}.
 
 Problems measured in the file:
 {problems}
 
 Reply with only a JSON object in this shape:
-{{"insights": ["what the review found, 3 to 5 short statements"],
- "feedback": [{{"slide": 1, "text": "one concrete thing to change"}}]}}
-Give one feedback item for each finding above, in the same order, at most 6: name the slide and the number that was measured, or the topic that is missing, and say what to do about it. Write for the team: say what to change, and do not mention levels or the names of criteria. Give no feedback on what is at the top level. Set slide to the number of the slide the feedback refers to, or null if it applies to the whole deck."""
+{{"insights": ["what the rating found, 3 to 5 short statements, the weak points and the strong ones"],
+ "feedback": [{{"finding": 1, "slide": 1, "text": "one concrete thing to change"}}]}}
+Write one feedback item for each numbered finding, and for nothing else. In each, name the slide and the number that was measured, or the topic that is missing, and say what the team should do about it. Do not mention levels or the names of criteria. Set finding to the number of the finding, and slide to the number of the slide the item refers to, or null if it applies to the whole deck."""
 
 
 def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, str]) -> dict:
@@ -544,23 +551,23 @@ def review_deck(ask: Ask, slides: list[dict], page_count: int, texts: dict[int, 
         # Nothing was read, so there is nothing for Gemma to comment on; the file measurements still stand
         return summary
 
-    found = rubric.findings(criteria)
+    weak = rubric.weakest(criteria, MAX_FEEDBACK)
+    problems = measured_problems(slides)
     if not any(s["measurements"] for s in slides):
-        found["findings"] += "\n- The PDF has no text layer, so text size, word count, contrast and consistency were not measured."
+        problems.append("- The PDF has no text layer, so text size, word count, contrast and consistency were not measured.")
     prompt = FEEDBACK_PROMPT.format(
         count=page_count,
         slides="\n".join(describe_slide(s) for s in slides),
-        problems="\n".join(measured_problems(slides)) or "(none)",
-        **found,
+        problems="\n".join(problems) or "(none)",
+        **rubric.describe_findings(weak, criteria),
     )
     reply, _ = ask([{"type": "text", "text": prompt}])
     reply = reply or {}
-    feedback = [
-        {"slide": f.get("slide") if isinstance(f.get("slide"), int) else None, "text": f["text"].strip()}
-        for f in (reply.get("feedback") if isinstance(reply.get("feedback"), list) else [])
-        if isinstance(f, dict) and isinstance(f.get("text"), str) and f["text"].strip()
-    ]
-    return {**summary, "insights": rubric.strings(reply.get("insights"), 5), "feedback": feedback[:6]}
+    return {
+        **summary,
+        "insights": rubric.strings(reply.get("insights"), 5),
+        "feedback": rubric.feedback(reply, weak, "slide", (int,)),
+    }
 
 
 def thumbnail(image: Image.Image) -> str:
