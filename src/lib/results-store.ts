@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import type { Alignment, AudioAnalysis, DeckAnalysis } from "@/lib/analysis";
+import { type Alignment, type AudioAnalysis, type DeckAnalysis, RUBRIC_VERSION } from "@/lib/analysis";
 
 export type Results = {
   pitch: AudioAnalysis | null;
@@ -21,8 +21,11 @@ const listeners = new Set<() => void>();
 
 function read(): Results {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null");
-    return saved && (saved.pitch || saved.slides) ? saved : EMPTY;
+    const saved: Results | null = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null");
+    if (!saved || !(saved.pitch || saved.slides)) return EMPTY;
+    // Results rated by another rubric have another shape: a tab that was open across an update starts empty
+    const current = [saved.pitch, saved.slides].every((result) => !result || result.setup?.rubric === RUBRIC_VERSION);
+    return current ? saved : EMPTY;
   } catch {
     return EMPTY;
   }

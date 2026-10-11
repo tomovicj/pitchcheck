@@ -6,15 +6,16 @@ import type { AnalysisStatus } from "@/components/analysis-progress";
 import { AudioAnalyzer } from "@/components/audio-analyzer";
 import { CombinedPitchCheck } from "@/components/combined-pitch-check";
 import { DeckUploader } from "@/components/deck-uploader";
-import type { AudioAnalysis, DeckAnalysis, PitchCheck } from "@/lib/analysis";
+import { type AudioAnalysis, type DeckAnalysis, type PitchCheck, RUBRIC_VERSION } from "@/lib/analysis";
 import { type Results, showResults, useResults } from "@/lib/results-store";
 import { runAnalysis } from "@/lib/run-analysis";
 
 type JobKind = "pitch" | "deck" | "check";
 type Job = AnalysisStatus & { kind: JobKind };
 
-// An analysis service from before the rubric returns results this page cannot show
-const OLDER_SERVICE = "The analysis service is an older version than this page. Update it and try again.";
+// An analysis service that rates by another rubric returns results this page cannot show
+const OTHER_SERVICE = "The analysis service is a different version than this page. Update it and try again.";
+const sameRubric = (result: AudioAnalysis | DeckAnalysis | undefined) => result?.setup?.rubric === RUBRIC_VERSION;
 
 export function PitchWorkspace() {
   const [recording, setRecording] = useState<File | null>(null);
@@ -51,7 +52,7 @@ export function PitchWorkspace() {
     const body = withTimeLimit(new FormData());
     body.append("file", recording);
     run<AudioAnalysis>("pitch", "/api/analyze", body, (pitch) => {
-      if (!pitch.filler_words) throw new Error(OLDER_SERVICE);
+      if (!sameRubric(pitch)) throw new Error(OTHER_SERVICE);
       show({ pitch, slides: results.slides });
     });
   }
@@ -60,7 +61,10 @@ export function PitchWorkspace() {
     if (!deck) return;
     const body = new FormData();
     body.append("file", deck);
-    run<DeckAnalysis>("deck", "/api/deck", body, (slides) => show({ pitch: results.pitch, slides }));
+    run<DeckAnalysis>("deck", "/api/deck", body, (slides) => {
+      if (!sameRubric(slides)) throw new Error(OTHER_SERVICE);
+      show({ pitch: results.pitch, slides });
+    });
   }
 
   function checkBoth() {
@@ -69,7 +73,7 @@ export function PitchWorkspace() {
     body.append("recording", recording);
     body.append("deck", deck);
     run<PitchCheck>("check", "/api/check", body, (check) => {
-      if (!check.pitch?.filler_words) throw new Error(OLDER_SERVICE);
+      if (!sameRubric(check.pitch) || !sameRubric(check.deck)) throw new Error(OTHER_SERVICE);
       show({ pitch: check.pitch, slides: check.deck, alignment: check.alignment });
     });
   }
@@ -79,7 +83,10 @@ export function PitchWorkspace() {
     const sample: PitchCheck | null = await fetch("/sample-check.json")
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null);
-    if (!sample) return setErrors({ check: "The sample result could not be loaded." });
+    // A sample saved under another rubric has a shape this page cannot show
+    if (!sample || !sameRubric(sample.pitch) || !sameRubric(sample.deck)) {
+      return setErrors({ check: "The sample result could not be loaded." });
+    }
     setErrors({});
     show({ pitch: sample.pitch, slides: sample.deck, alignment: sample.alignment, sample: true });
     requestAnimationFrame(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }));

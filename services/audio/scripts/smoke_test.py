@@ -21,6 +21,7 @@ from PIL import Image, ImageDraw
 from transformers import AutoConfig, AutoModelForMultimodalLM, AutoProcessor, GenerationConfig
 
 from app.main import GEMMA_MODEL, MAX_SEGMENT_S
+from app.rubric import RUBRIC_VERSION
 
 PORT = 8765
 URL = f"http://127.0.0.1:{PORT}"
@@ -132,6 +133,16 @@ def check_file(data: dict, path: str):
     expected = hashlib.sha256(bytes.fromhex(file["salt"]) + content).hexdigest()
     assert file["sha256"] == expected, "fingerprint does not match the uploaded file"
     assert len(data["setup"]["code_sha256"]) == 64, f"no code hash in the setup: {data['setup']}"
+    assert data["setup"]["rubric"] == RUBRIC_VERSION, f"no rubric version in the setup: {data['setup']}"
+
+
+def check_summary(data: dict, measured: str):
+    """The group of criteria that needs no reply from Gemma is rated, and every rated criterion names its standard."""
+    summary = data["summary"]
+    assert measured in summary["subscores"], f"the {measured} group was not rated: {summary['subscores']}"
+    for c in summary["criteria"]:
+        assert c["level"] in range(5) and c["target"] and c["standard"]["by"], f"incomplete criterion: {c}"
+    assert isinstance(summary["checklist"], list), f"no checklist in the summary: {sorted(summary)}"
 
 
 def check_pitch(data: dict):
@@ -141,6 +152,7 @@ def check_pitch(data: dict):
         assert s["end_s"] - s["start_s"] <= MAX_SEGMENT_S, f"segment longer than {MAX_SEGMENT_S}s: {s}"
         assert s["observations"] is not None or s.get("raw") is not None, f"segment without a reply: {s}"
     assert data["pauses"]["pause_count"] >= 1, f"expected the silent gaps as pauses: {data['pauses']}"
+    check_summary(data, "delivery")
 
 
 def check_deck(data: dict):
@@ -148,6 +160,7 @@ def check_deck(data: dict):
     assert not data["text_layer"], "a PDF of images has no text layer"
     for s in data["slides"]:
         assert s["observations"] is not None or s.get("raw") is not None, f"slide without a reply: {s}"
+    check_summary(data, "design")
 
 
 def main():

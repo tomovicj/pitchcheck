@@ -42,69 +42,129 @@ PAUSE_THRESHOLD_S = 0.5
 SILENCE_BELOW_PEAK_DB = 25.0
 # Speaking rate in syllables per second of speaking, outside which a segment counts as slow or fast.
 # Gemma did not hear pace: it called the same text at 124, 169 and 343 words a minute "conversational"
-# every time, so pace is measured. The limits are a convention, about 100 and 215 words a minute on
-# the synthetic voice they were tried on; published advice disagrees, so only the extremes are marked.
+# every time, so pace is measured. Those three clips measured 3.49, 4.23 and 7.05 syllables a second;
+# on a line through them the limits are about 75 and 215 words a minute for that synthetic voice.
+# Y Combinator's advice is to speak slowly, so only a very slow segment is marked and the fast limit
+# is the tighter one (it was 5.5, about 245 words a minute). Neither is checked on human voices.
 SLOW_SYLLABLES_PER_S = 2.7
-FAST_SYLLABLES_PER_S = 5.5
-# Limits for the other criteria rated from the signal. All three are conventions the team chose, with no
+FAST_SYLLABLES_PER_S = 5.0
+# Limits for the other criteria rated from the signal. All are conventions the team chose, with no
 # study behind them: Gemma gave a steady synthetic voice a different loudness level from one run to the
 # next, so these levels are arithmetic too, and the limits are here to be argued with.
 LONG_PAUSE_S = 2.0  # a pause longer than this counts against the pauses criterion
+MIN_PAUSES_PER_MIN = 3  # with fewer pauses a minute than this the speaker does not stop for the listener
 EVEN_PITCH_SEMITONES = 2.0  # a segment whose pitch varies by less than this (std) counts as even
 QUIET_BELOW_MEAN_DB = 6.0  # a segment this much quieter than the whole recording counts as quiet
 UNEVEN_LOUDNESS_DB = 9.0  # a segment whose loudness varies by more than this (std) counts as uneven
 MAX_DECK_BYTES = 50 * 2**20
 KEEPALIVE_S = 15  # seconds without a progress event before a stream sends a blank line
 
-# Rated in code: the level is arithmetic on a count or a share, and Gemma did not apply numeric limits
-# reliably when asked to. It called 5.7 filler words a minute "5 or fewer", and a pitch with two
-# expected topics missing complete. Pace comes from the measured speaking rate; filler words and
-# topic coverage from what Gemma heard in each segment.
+OPENING_CRITERION = "Opening"
 PACE_CRITERION = "Pace"
 FILLER_CRITERION = "Filler words"
-# Rated in code, and only when the event's time limit came with the recording
+PAUSE_CRITERION = "Pauses"
+# Rated only when the event's time limit came with the recording
 TIME_CRITERION = "Time"
 
-# Delivery rubric: one description per level, from 4 down to 0. Levels describe what is heard or measured,
-# never the speaker's state of mind. Only the filler word levels rest on research (Laske and DiGennaro Reed
-# 2024, one study, English; nothing is known between 5 and 12 per minute). The rest are conventions.
+# Pitch rubric: what the pitch says, and how it is delivered. One description per level, from 4 down to 0;
+# every level is a count, a share or a measurement and is given in code. Delivery levels describe what is
+# heard or measured, never the speaker's state of mind. What is said counts for more than how: "The most
+# important part of your presentation is the story you tell" (Ralston). Inside the content group the
+# topics count three times and their numbers twice, so that a pitch cannot score well on a clear first
+# sentence and plain words alone. The 60 to 40 split and those weights are this team's.
+GROUP_WEIGHTS = {"content": 0.6, "delivery": 0.4}
 RUBRIC = {
-    PACE_CRITERION: rubric.time_share_levels("is spoken slowly or fast"),
-    FILLER_CRITERION: [
-        "5 or fewer per minute",
-        "more than 5 and up to 7 per minute",
-        "more than 7 and up to 10 per minute",
-        "more than 10 and under 12 per minute",
-        "12 or more per minute",
-    ],
-    "Pauses": [
-        f"no pause longer than {LONG_PAUSE_S:g} seconds",
-        f"at most one pause longer than {LONG_PAUSE_S:g} seconds a minute",
-        "at most two a minute",
-        "at most four a minute",
-        f"more than four pauses longer than {LONG_PAUSE_S:g} seconds a minute",
-    ],
-    "Pitch variation": rubric.time_share_levels("has even pitch"),
-    "Loudness": rubric.time_share_levels("is much quieter than the rest or swings in loudness"),
-    TIME_CRITERION: [
-        "within the event's time limit",
-        "over the limit by up to 5%",
-        "over the limit by up to 10%",
-        "over the limit by up to 20%",
-        "over the limit by more than 20%",
-    ],
-    rubric.TOPIC_CRITERION: rubric.TOPIC_LEVELS,
-    "Structure and flow": [
-        "opens by saying what the team does, the topics follow in an order a listener can track, "
-        "and it ends with a closing message or a next step",
-        "one of the three is weak",
-        "one of the three is missing",
-        "two of the three are missing",
-        "no opening, no order and no closing",
-    ],
+    OPENING_CRITERION: rubric.Criterion(
+        "content",
+        [
+            f"says what the company does in the first {MAX_SEGMENT_S:g} seconds",
+            f"says it in the first {2 * MAX_SEGMENT_S:g} seconds",
+            f"says it in the first {3 * MAX_SEGMENT_S:g} seconds",
+            "says it only later",
+            "never says what the company does",
+        ],
+        "A common error is to avoid describing what you do until far into the presentation. That is always a mistake.",
+        "ralston",
+    ),
+    rubric.TOPIC_CRITERION: rubric.Criterion(
+        "content",
+        rubric.TOPIC_LEVELS,
+        "If you can answer all seven questions succinctly you'll be well ahead of the curve.",
+        "seibel",
+        weight=3,
+    ),
+    rubric.NUMBERS_CRITERION: rubric.Criterion(
+        "content", rubric.NUMBER_LEVELS, "It is vastly better to be concrete and bottoms up", "ralston", weight=2
+    ),
+    rubric.PLAIN_CRITERION: rubric.Criterion(
+        "content",
+        [
+            "no marketing or jargon word from the list",
+            "up to one every two minutes",
+            "up to one a minute",
+            "up to two a minute",
+            "more than two a minute",
+        ],
+        "eliminate jargon, acronyms, marketing speak, and any ambiguous terms such as \"platform\"",
+        "seibel",
+    ),
+    PACE_CRITERION: rubric.Criterion(
+        "delivery",
+        rubric.time_share_levels("is spoken very slowly or fast"),
+        "Speak slowly. We advise founders to speak unnaturally slowly, especially if they talk fast habitually.",
+        "ralston",
+    ),
+    # The two ends are the study's: 5 a minute or fewer did no harm, 12 a minute did. The step at 2 is this
+    # team's, for a pitch that was rehearsed; nothing is known between 5 and 12.
+    FILLER_CRITERION: rubric.Criterion(
+        "delivery",
+        [
+            "2 or fewer per minute",
+            "more than 2 and up to 5 per minute",
+            "more than 5 and up to 8 per minute",
+            "more than 8 and under 12 per minute",
+            "12 or more per minute",
+        ],
+        "a rate of five or fewer disfluencies per minute may be acceptable",
+        "laske",
+    ),
+    PAUSE_CRITERION: rubric.Criterion(
+        "delivery",
+        [
+            f"pauses at least {MIN_PAUSES_PER_MIN} times a minute, and never for longer than {LONG_PAUSE_S:g} seconds",
+            f"at most one pause longer than {LONG_PAUSE_S:g} seconds a minute",
+            f"at most two a minute, or fewer than {MIN_PAUSES_PER_MIN} pauses of any length a minute",
+            "at most four a minute",
+            f"more than four pauses longer than {LONG_PAUSE_S:g} seconds a minute",
+        ],
+        "Pause from time to time. A pause is powerful",
+        "ralston",
+    ),
+    "Pitch variation": rubric.Criterion(
+        "delivery",
+        rubric.time_share_levels("has even pitch"),
+        "A monotone, robotic delivery will put your audience to sleep.",
+        "ralston",
+    ),
+    "Loudness": rubric.Criterion(
+        "delivery",
+        rubric.time_share_levels("is much quieter than the rest or swings in loudness"),
+        "Project. This is especially important if you are speaking to a large crowd",
+        "ralston",
+    ),
+    TIME_CRITERION: rubric.Criterion(
+        "delivery",
+        [
+            "within the event's time limit",
+            "over the limit by up to 5%",
+            "over the limit by up to 10%",
+            "over the limit by up to 20%",
+            "over the limit by more than 20%",
+        ],
+        "You only have 2 minutes and 30 seconds.",
+        "hale",
+    ),
 }
-# Gemma rates the criterion that is a judgement of what was said; the rest follow from the signal and from counts
-GEMMA_CRITERIA = ["Structure and flow"]
 
 T = TypeVar("T")
 
@@ -383,8 +443,7 @@ Base your answer on what you hear in the audio. Use the measurements below as su
 Reply with only a JSON object in this shape:
 {{"tone": "how the voice sounds: pitch movement, loudness, steadiness",
  "filler_words": ["every sound that fills a pause, in the order you hear it, repeated each time it is made, e.g. um, uh, um, er"],
- "topics": ["the name of each topic this segment explains, from: {topics}"],
- "key_points": ["every statement the speaker makes in this segment, each as one short sentence, in order, keeping numbers and names as spoken; at most 12"],
+ "key_points": ["every statement the speaker makes in this segment, each as one short sentence in the speaker's own words, in order, keeping numbers and names as spoken; at most 12"],
  "observations": "one or two sentences on what works and what does not in this delivery"}}"""
 
 
@@ -394,7 +453,6 @@ def observe_segment(clip: np.ndarray, start: float, end: float, measurements: di
         end=format_time(end),
         no_state=NO_STATE,
         measurements=describe_measurements(measurements, pause_ratio),
-        topics=rubric.TOPIC_GUIDE,
     )
     # Audio after the text, as recommended for Gemma 4
     observations, raw = ask_gemma([{"type": "text", "text": prompt}, {"type": "audio", "audio": clip}])
@@ -407,7 +465,14 @@ def observe_segment(clip: np.ndarray, start: float, end: float, measurements: di
     return {"observations": observations, **({} if observations else {"raw": raw})}
 
 
-SCORE_PROMPT = """You are a presentation coach reviewing the delivery of a startup pitch against a fixed rubric. Review how it was delivered, never the business idea or its market potential.
+# How the checklist prompt names a spoken pitch; see rubric.CHECK_PROMPT
+SPEECH = {
+    "kind": "spoken startup pitch",
+    "heard": "What the speaker said, in order, as you heard it",
+    "plural": "pitches",
+}
+
+FEEDBACK_PROMPT = """You are a presentation coach giving feedback on a startup pitch. It was rated against a fixed rubric, each criterion on a level from 0 (worst) to 4 (best). Comment on what the pitch says and on how it is delivered, never on the business idea or its market potential.
 {no_state}
 
 Whole recording: {duration}.
@@ -417,17 +482,13 @@ Pauses: {pauses}
 What you heard in each segment:
 {segments}
 
-Already rated from the measurements and from counts of what you heard:
+How the pitch was rated:
 {findings}
 
-Give this criterion the level, from 4 down to 0, whose description fits best:
-{rubric}
-
 Reply with only a JSON object in this shape:
-{{"criteria": [{{"name": "Structure and flow", "reason": "one sentence naming the moment it rests on", "level": 0}}],
- "insights": ["what the analysis found, 3 to 5 short statements"],
+{{"insights": ["what the analysis found, 3 to 5 short statements"],
  "feedback": [{{"at_s": 0, "text": "one concrete thing to change"}}]}}
-Give 3 to 5 feedback items. Start with the criteria rated below 4 above, naming the number that was measured; then add what you found yourself. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
+Give 3 to 5 feedback items. Take the criteria with the lowest levels first, one item each: name the number that was measured or the topic that is missing, and say what to do about it. Give no feedback on a criterion at level 4. Set at_s to the second in the recording the feedback refers to, or null if it applies to the whole pitch.
 A voice whose pitch moves and whose loudness stays easy to hear helps a listener: never advise a flatter or more even pitch."""
 
 
@@ -442,9 +503,38 @@ def count_fillers(segments: list[dict], duration: float) -> dict:
 def rate_fillers(fillers: dict) -> dict:
     """The filler word criterion; limits as in RUBRIC."""
     per_minute = fillers["per_minute"]
-    level = 4 if per_minute <= 5 else 3 if per_minute <= 7 else 2 if per_minute <= 10 else 1 if per_minute < 12 else 0
-    reason = f"{fillers['count']} heard by Gemma, {per_minute} per minute ({RUBRIC[FILLER_CRITERION][4 - level]})."
+    level = 4 if per_minute <= 2 else 3 if per_minute <= 5 else 2 if per_minute <= 8 else 1 if per_minute < 12 else 0
+    reason = f"{fillers['count']} heard by Gemma, {per_minute} per minute ({RUBRIC[FILLER_CRITERION].levels[4 - level]})."
     return {"name": FILLER_CRITERION, "reason": reason, "level": level}
+
+
+def statements(segment: dict) -> list[str]:
+    """What the speaker said in a segment, as Gemma heard it."""
+    return rubric.strings((segment["observations"] or {}).get("key_points"), alignment.SPEECH_POINTS)
+
+
+def rate_opening(checklist: list[dict], segments: list[dict]) -> dict:
+    """The opening criterion, from the segment in which the speaker says what the company does; limits as in RUBRIC."""
+    said = next(c for c in checklist if c["item"] == rubric.OPENING)
+    if not said["found"]:
+        return {"name": OPENING_CRITERION, "reason": "No statement says what the company does.", "level": 0}
+    # A statement is placed by its segment, so it counts as said by the time that segment ends
+    part = next(s for s in segments if s["start_s"] == said["at_s"])
+    by = part["end_s"]
+    level = 4 if by <= MAX_SEGMENT_S else 3 if by <= 2 * MAX_SEGMENT_S else 2 if by <= 3 * MAX_SEGMENT_S else 1
+    return {"name": OPENING_CRITERION, "reason": f"Said in the part from {span(part)}: \"{said['quote']}\"", "level": level}
+
+
+def rate_plain(segments: list[dict], duration: float) -> dict:
+    """The plain language criterion, from the listed marketing and jargon words in what Gemma heard; limits as in RUBRIC."""
+    heard = [word for s in segments for statement in statements(s) for word in rubric.buzzwords(statement)]
+    per_minute = round(len(heard) / (duration / 60), 1)
+    level = 4 if not heard else 3 if per_minute <= 0.5 else 2 if per_minute <= 1 else 1 if per_minute <= 2 else 0
+    reason = (
+        f"{len(heard)} in what Gemma heard, {per_minute} per minute: {', '.join(sorted(set(heard)))}."
+        if heard else "None of the listed marketing and jargon words in what Gemma heard."
+    )
+    return {"name": rubric.PLAIN_CRITERION, "reason": reason, "level": level}
 
 
 def rate_time(spoken_s: float, limit_s: float) -> dict:
@@ -454,7 +544,7 @@ def rate_time(spoken_s: float, limit_s: float) -> dict:
     level = 4 if over <= 0 else 3 if over <= 0.05 else 2 if over <= 0.1 else 1 if over <= 0.2 else 0
     reason = (
         f"{format_time(round(spoken_s))} from the first sound to the last, against a limit of "
-        f"{format_time(limit_s)} ({RUBRIC[TIME_CRITERION][4 - level]})."
+        f"{format_time(limit_s)} ({RUBRIC[TIME_CRITERION].levels[4 - level]})."
     )
     return {"name": TIME_CRITERION, "reason": reason, "level": level}
 
@@ -472,7 +562,7 @@ def rate_time_share(name: str, flagged: list[dict], measured: list[dict], findin
     """A criterion rated by the share of the measured time whose segments have a problem; limits as in rubric.time_share_levels()."""
     share = sum(s["end_s"] - s["start_s"] for s in flagged) / sum(s["end_s"] - s["start_s"] for s in measured)
     reason = f"{finding} from {', '.join(span(s) for s in flagged)}." if flagged else clear
-    return {"name": name, "reason": reason, "level": rubric.level_for_time_share(share)}
+    return {"name": name, "reason": reason, "level": rubric.level_for_share(share)}
 
 
 def rate_signal(prosody: dict | None, pauses: dict, segments: list[dict]) -> dict[str, dict]:
@@ -491,9 +581,16 @@ def rate_signal(prosody: dict | None, pauses: dict, segments: list[dict]) -> dic
     minutes = max(pauses["spoken_s"], 1.0) / 60
     long_per_minute = pauses["long_pause_count"] / minutes
     level = 4 if long_per_minute == 0 else 3 if long_per_minute <= 1 else 2 if long_per_minute <= 2 else 1 if long_per_minute <= 4 else 0
-    rated["Pauses"] = {
-        "name": "Pauses",
-        "reason": f"{pauses['long_pause_count']} of {pauses['pause_count']} pauses are longer than {LONG_PAUSE_S:g} seconds; the longest is {pauses['longest_pause_s']} s.",
+    per_minute = round(pauses["pause_count"] / minutes, 1)
+    # A clip of a sentence or two has no room for pauses, so it is not marked for having few
+    if per_minute < MIN_PAUSES_PER_MIN and pauses["spoken_s"] >= 30:
+        level = min(level, 2)
+    rated[PAUSE_CRITERION] = {
+        "name": PAUSE_CRITERION,
+        "reason": (
+            f"{pauses['pause_count']} pauses of {PAUSE_THRESHOLD_S:g} seconds or longer, {per_minute} a minute; "
+            f"{pauses['long_pause_count']} of them longer than {LONG_PAUSE_S:g} seconds, the longest {pauses['longest_pause_s']} s."
+        ),
         "level": level,
     }
 
@@ -523,36 +620,48 @@ def rate_signal(prosody: dict | None, pauses: dict, segments: list[dict]) -> dic
 def score_pitch(
     duration: float, prosody: dict | None, pauses: dict, fillers: dict, segments: list[dict], time_limit_s: float | None
 ) -> dict:
-    """Rate the pitch: the signal and the counts in code, structure by Gemma, and one 0-100 score over both."""
-    covered, missing = rubric.split_topics([(s["observations"] or {}).get("topics") for s in segments])
+    """Rate the pitch and collect the feedback on it.
+
+    Gemma says which of the statements it heard say each expected thing, code gives every level from
+    that and from the signal, and Gemma writes the insights and the feedback from the rated findings.
+    """
     rated = rate_signal(prosody, pauses, segments)
-    # Without a single parsed segment there is no filler count to rate and no topic was heard or missed
+    # Without a single parsed segment there is no filler count to rate and nothing to check for content
     if any(s["observations"] for s in segments):
         rated[FILLER_CRITERION] = rate_fillers(fillers)
-        rated[rubric.TOPIC_CRITERION] = rubric.rate_topics(missing)
-    else:
-        missing = []
+    checklist = rubric.run_checklist(
+        ask_gemma,
+        [(f"From {span(s)}:", {"at_s": s["start_s"]}, statements(s)) for s in segments],
+        **SPEECH,
+    )
+    # Content is rated as a whole or not at all: plain language alone would pass for a pitch that says nothing
+    if checklist:
+        rated[OPENING_CRITERION] = rate_opening(checklist, segments)
+        rated[rubric.TOPIC_CRITERION] = rubric.rate_topics(checklist)
+        if numbers := rubric.rate_numbers(checklist):
+            rated[rubric.NUMBERS_CRITERION] = numbers
+        rated[rubric.PLAIN_CRITERION] = rate_plain(segments, duration)
     if time_limit_s:
         rated[TIME_CRITERION] = rate_time(pauses["spoken_s"], time_limit_s)
+    # The score is arithmetic over the levels, so the same levels always give the same score
+    criteria, score, subscores = rubric.total(RUBRIC, rated, GROUP_WEIGHTS)
 
     described = []
     for s in segments:
         observations = json.dumps(s["observations"]) if s["observations"] else "(no observations)"
         described.append(f"- {span(s)} (starts at {s['start_s']}s): {observations}")
-    prompt = SCORE_PROMPT.format(
+    prompt = FEEDBACK_PROMPT.format(
         no_state=NO_STATE,
         duration=format_time(duration),
         measurements=describe_measurements(prosody),
         pauses=json.dumps(pauses),
         segments="\n".join(described),
-        findings="\n".join(f"- {c['name']}: level {c['level']} of 4. {c['reason']}" for c in rated.values()),
-        rubric=rubric.describe(RUBRIC, GEMMA_CRITERIA),
+        findings="\n".join(
+            f"- {c['name']}: level {c['level']} of 4. {c['reason']} Level 4 takes: {c['target']}." for c in criteria
+        ),
     )
     reply, _ = ask_gemma([{"type": "text", "text": prompt}])
     reply = reply or {}
-    rated.update(rubric.gemma_levels(reply.get("criteria"), GEMMA_CRITERIA))
-    # The score is arithmetic over the levels, so the same levels always give the same score
-    criteria, score = rubric.total(RUBRIC, rated)
     feedback = [
         {"at_s": f.get("at_s") if type(f.get("at_s")) in (int, float) else None, "text": f["text"].strip()}
         for f in (reply.get("feedback") if isinstance(reply.get("feedback"), list) else [])
@@ -560,8 +669,11 @@ def score_pitch(
     ]
     return {
         "pitch_score": score,
+        # The 0-100 score of each group of criteria: what the pitch says, and how it is delivered
+        "subscores": subscores,
         "criteria": criteria,
-        "missing_topics": missing,
+        # Where the pitch says each expected thing; empty when Gemma's reply could not be used
+        "checklist": checklist or [],
         "insights": rubric.strings(reply.get("insights"), 5),
         "feedback": feedback[:5],
     }
@@ -675,6 +787,7 @@ def describe_setup() -> dict:
         "model": GEMMA_MODEL,
         "dtype": str(model.dtype).removeprefix("torch.") if model is not None else None,
         "slide_tokens": deck.SLIDE_TOKENS,
+        "rubric": rubric.RUBRIC_VERSION,
         "topics": list(rubric.PITCH_TOPICS),
         "code_sha256": CODE_SHA256,
     }

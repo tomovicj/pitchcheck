@@ -38,7 +38,6 @@ if audio_only:
         end=main.format_time(duration),
         no_state=main.NO_STATE,
         measurements="No measurements are provided for this clip. Rely on the audio alone.",
-        topics=main.rubric.TOPIC_GUIDE,
     )
     observations, raw = main.ask_gemma([{"type": "text", "text": prompt}, {"type": "audio", "audio": audio}])
     result = {"observations": observations, **({} if observations else {"raw": raw})}

@@ -28,14 +28,38 @@ export type PauseAnalysis = {
 export type SegmentObservation = {
   tone?: string;
   filler_words?: string[];
-  topics?: string[];
-  // Short statements of what the speaker says, used to compare the speech with the deck
+  // Short statements of what the speaker says: checked against the expected topics and compared with the deck
   key_points?: string[];
   observations?: string;
 };
 
 // Rubric level from 0 to 4, with the measurement or the observation it rests on
-export type Criterion = { name: string; level: number; reason?: string };
+export type Criterion = {
+  name: string;
+  level: number;
+  reason?: string;
+  // Which part of the score it belongs to; a verdict made before the groups has none
+  group?: "content" | "delivery" | "design";
+  // What level 4 takes
+  target?: string;
+  // The published advice the criterion rests on, and who gave it; url is null for a convention of the rubric
+  standard?: { quote: string; by: string; url: string | null };
+};
+
+// One thing a pitch or a deck is expected to say, and where Gemma found it said
+export type ChecklistItem = {
+  item: string;
+  found: boolean;
+  // The statements Gemma named for it, as it heard or read them
+  quote: string;
+  at_s?: number;
+  slide?: number;
+  // Only for a topic that has to come with a number: whether those statements carry one
+  number?: boolean;
+};
+
+// The 0-100 score of each group of criteria; a group with nothing rated is missing
+export type Subscores = Partial<Record<"content" | "delivery" | "design", number>>;
 
 // SHA-256 of the salt followed by the uploaded file. The salt is random per analysis, so the hash
 // names the file without revealing anything about it until the salt is shown.
@@ -47,9 +71,14 @@ export type AnalysisSetup = {
   model: string;
   dtype: string | null;
   slide_tokens: number;
+  // Which rubric the service rates by; a service from before the Y Combinator rubric sends none
+  rubric?: number;
   topics?: string[];
   code_sha256: string;
 };
+
+// The rubric this page shows results of; keep in step with RUBRIC_VERSION in services/audio/app/rubric.py
+export const RUBRIC_VERSION = 2;
 
 export type Segment = {
   start_s: number;
@@ -64,14 +93,15 @@ export type Segment = {
 };
 
 export type PitchSummary = {
-  // 0-100 in steps of 5, computed from the criterion levels; null when no criterion got a valid level
-  pitch_score?: number | null;
-  // Gemma gives the level for structure; the rest follow from the signal and from counts of what it heard
-  criteria?: Criterion[];
-  // Expected pitch topics that Gemma did not find in any segment
-  missing_topics?: string[];
-  insights?: string[];
-  feedback?: { at_s: number | null; text: string }[];
+  // 0-100 in steps of 5, computed from the criterion levels; null when what the pitch says could not be rated
+  pitch_score: number | null;
+  subscores: Subscores;
+  // Every level is given in code, from the signal and from the statements Gemma named for each expected topic
+  criteria: Criterion[];
+  // Empty when Gemma's reply to the checklist could not be used
+  checklist: ChecklistItem[];
+  insights: string[];
+  feedback: { at_s: number | null; text: string }[];
 };
 
 export type AudioAnalysis = {
@@ -99,6 +129,10 @@ export type SlideMeasurements = {
   // null when the text colour or its surroundings could not be read
   low_contrast_share: number | null;
   lowest_contrast: number | null;
+  // How far down the slide the largest text sits: 0 is the top edge, 100 the bottom
+  largest_text_depth_pct: number | null;
+  // The largest text in the top of the slide; null when there is none there
+  title_text_pct: number | null;
   fonts: Record<string, number>;
 };
 
@@ -124,10 +158,13 @@ export type Slide = {
 };
 
 export type DeckSummary = {
-  // 0-100 in steps of 5, computed from the criterion levels; null when no criterion could be rated
+  // 0-100 in steps of 5, computed from the criterion levels; null when what the deck says could not be rated
   slide_score: number | null;
-  // Gemma gives the levels for consistency and structure; the rest follow from counts and measurements
+  subscores: Subscores;
+  // Every level is given in code, from the file and from the lines Gemma named for each expected topic
   criteria: Criterion[];
+  // Empty when Gemma's reply to the checklist could not be used
+  checklist: ChecklistItem[];
   insights: string[];
   feedback: { slide: number | null; text: string }[];
 };
@@ -138,10 +175,8 @@ export type DeckAnalysis = {
   pages_analyzed: number;
   text_layer: boolean;
   measurements: { words_median: number; words_max: number; smallest_text_pct: number; fonts: string[] } | null;
-  // For each expected topic, the slides that explain it; null when Gemma gave no such map
-  topic_slides: Record<string, number[]> | null;
   slides: Slide[];
-  summary: DeckSummary | null;
+  summary: DeckSummary;
   file: FileFingerprint;
   setup: AnalysisSetup;
 };
