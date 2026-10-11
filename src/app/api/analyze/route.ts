@@ -1,20 +1,30 @@
 import http from "node:http";
 import https from "node:https";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { finished } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 // Uses node:http rather than fetch: fetch (undici) buffers a streamed request body in memory,
 // which for large video uploads means holding the whole file. node:http respects backpressure.
 // node:https is needed when the audio service sits behind an HTTPS tunnel, e.g. on Kaggle.
-function forward(url: string, contentType: string, body: ReadableStream<Uint8Array>) {
+// pipe() rather than pipeline(): a failed request must not cancel the upload, see discard().
+function forward(url: string, contentType: string, upload: Readable) {
   const client = new URL(url).protocol === "https:" ? https : http;
   return new Promise<http.IncomingMessage>((resolve, reject) => {
     const req = client.request(url, { method: "POST", headers: { "content-type": contentType } });
     req.on("response", resolve);
     req.on("error", reject);
-    pipeline(Readable.fromWeb(body as NodeReadableStream<Uint8Array>), req).catch(reject);
+    upload.on("error", (error) => req.destroy(error));
+    upload.pipe(req);
   });
+}
+
+// Browsers report an error reply that arrives while they are still uploading as a network error,
+// so read the rest of the upload before replying.
+async function discard(upload: Readable) {
+  upload.unpipe();
+  upload.resume();
+  await finished(upload).catch(() => {});
 }
 
 async function readJson(res: http.IncomingMessage) {
@@ -35,17 +45,21 @@ export async function POST(request: Request) {
     return Response.json({ error: "No file uploaded" }, { status: 400 });
   }
 
+  const upload = Readable.fromWeb(request.body as NodeReadableStream<Uint8Array>);
   let res: http.IncomingMessage;
   try {
-    res = await forward(`${audioServiceUrl}/analyze/stream`, contentType, request.body);
+    res = await forward(`${audioServiceUrl}/analyze/stream`, contentType, upload);
   } catch {
+    await discard(upload);
     return Response.json({ error: "Audio service is unreachable" }, { status: 502 });
   }
 
   const status = res.statusCode ?? 502;
   if (status >= 400) {
-    const detail = await readJson(res);
-    return Response.json({ error: detail?.detail ?? "Analysis failed" }, { status });
+    const [detail] = await Promise.all([readJson(res), discard(upload)]);
+    // Cloudflare answers 530 with an HTML page when the tunnel has nothing behind it
+    const error = status === 530 ? "Audio service is unreachable" : (detail?.detail ?? "Analysis failed");
+    return Response.json({ error }, { status: status === 530 ? 502 : status });
   }
 
   // NDJSON progress events followed by the result; no-transform stops compression from buffering it

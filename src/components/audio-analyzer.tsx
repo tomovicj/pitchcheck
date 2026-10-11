@@ -111,7 +111,9 @@ export function AudioAnalyzer() {
     const body = new FormData();
     body.append("file", file);
     try {
-      const res = await fetch("/api/analyze", { method: "POST", body });
+      const res = await fetch("/api/analyze", { method: "POST", body }).catch(() => {
+        throw new Error("Could not reach PitchCheck. Check your connection and try again.");
+      });
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? "Analysis failed");
