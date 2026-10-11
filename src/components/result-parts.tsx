@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import type { ChecklistItem, Criterion, Subscores as GroupScores } from "@/lib/analysis";
 
@@ -147,16 +146,6 @@ export function weakest(criteria: Criterion[], count: number) {
     .filter((c) => c.level < 4)
     .sort((a, b) => a.level - b.level)
     .slice(0, count);
-}
-
-// Opens and closes the detail under a result; the short view above it stays in place
-export function ShowMore({ open, onToggle, controls }: { open: boolean; onToggle: () => void; controls: string }) {
-  return (
-    <Button variant="outline" onClick={onToggle} aria-expanded={open} aria-controls={controls} className="self-start">
-      {open ? "Show less" : "Show more"}
-      <ChevronDown aria-hidden="true" className={open ? "rotate-180 transition-transform" : "transition-transform"} />
-    </Button>
-  );
 }
 
 // What the score does and does not say; shown under every score

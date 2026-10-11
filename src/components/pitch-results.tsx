@@ -1,7 +1,3 @@
-"use client";
-
-import { useState } from "react";
-
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -9,7 +5,6 @@ import {
   CriteriaList,
   Score,
   ScoreNotes,
-  ShowMore,
   Stat,
   Subscores,
   formatTime,
@@ -17,11 +12,11 @@ import {
 } from "@/components/result-parts";
 import type { AudioAnalysis } from "@/lib/analysis";
 
-// Feedback items shown before "Show more"
-const FIRST_FIXES = 3;
+// Criteria named when Gemma returned no feedback to show
+const WEAKEST_SHOWN = 3;
 
+// The full report on the recording; the overview opens it
 export function PitchResults({ result }: { result: AudioAnalysis }) {
-  const [open, setOpen] = useState(false);
   const { prosody, pauses, segments, summary } = result;
   const feedback = summary?.feedback ?? [];
 
@@ -46,10 +41,10 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
             <>
               <Subscores subscores={summary.subscores} />
               <div className="flex flex-col gap-2">
-                <h3 className="text-sm font-medium">Fix first</h3>
+                <h3 className="text-sm font-medium">What to improve</h3>
                 {feedback.length ? (
                   <ul className="flex flex-col gap-2 text-sm">
-                    {feedback.slice(0, FIRST_FIXES).map((item) => (
+                    {feedback.map((item) => (
                       <li key={item.text} className="flex items-start gap-2">
                         {item.at_s != null && (
                           <Badge variant="outline" className="tabular-nums">
@@ -65,7 +60,7 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                   </ul>
                 ) : (
                   <ul className="flex flex-col gap-2 text-sm">
-                    {weakest(summary.criteria, FIRST_FIXES).map((c) => (
+                    {weakest(summary.criteria, WEAKEST_SHOWN).map((c) => (
                       <li key={c.name}>
                         <span className="font-medium">{c.name}:</span> {c.reason}
                       </li>
@@ -73,11 +68,6 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                   </ul>
                 )}
               </div>
-            </>
-          )}
-          <ShowMore open={open} onToggle={() => setOpen(!open)} controls="pitch-details" />
-          {open && summary && (
-            <div id="pitch-details" className="flex flex-col gap-6">
               <div className="flex flex-col gap-3">
                 <h3 className="text-sm font-medium">How the score is built</h3>
                 <CriteriaList criteria={summary.criteria} />
@@ -98,26 +88,6 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                   </ul>
                 </div>
               )}
-              {feedback.length > FIRST_FIXES && (
-                <div className="flex flex-col gap-2">
-                  <h3 className="text-sm font-medium">More to improve</h3>
-                  <ul className="flex flex-col gap-2 text-sm">
-                    {feedback.slice(FIRST_FIXES).map((item) => (
-                      <li key={item.text} className="flex items-start gap-2">
-                        {item.at_s != null && (
-                          <Badge variant="outline" className="tabular-nums">
-                            {formatTime(item.at_s)}
-                          </Badge>
-                        )}
-                        <span>
-                          {item.criterion && <span className="font-medium">{item.criterion}: </span>}
-                          {item.text}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
               <ScoreNotes>
                 <li>
                   The score rates what the pitch says and how it is delivered. It does not rate the business
@@ -129,9 +99,10 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                   them into levels are this rubric&apos;s own, and none is checked on real pitches.
                 </li>
                 <li>
-                  Gemma ({result.model}) listens to the recording and names the statement behind each
-                  expected topic; a topic with no statement counts as missing. Pauses, pitch, loudness and
-                  speaking rate are measured from the signal with Praat, and every level is arithmetic.
+                  Gemma ({result.model}) listens to the recording and labels each statement with the
+                  expected topic it says; a topic with no statement counts as missing. Pauses, pitch,
+                  loudness and speaking rate are measured from the signal with Praat, and every level is
+                  arithmetic.
                 </li>
                 <li>Marketing words are counted from a short fixed list, in English only.</li>
                 <li>The score has not been validated against jury decisions or funding outcomes.</li>
@@ -140,114 +111,110 @@ export function PitchResults({ result }: { result: AudioAnalysis }) {
                   with speech differences.
                 </li>
               </ScoreNotes>
-            </div>
+            </>
           )}
         </CardContent>
       </Card>
 
-      {open && (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Cadence</CardTitle>
-              <CardDescription>{formatTime(result.duration_s)} of audio</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <Stat label="Pauses" value={String(pauses.pause_count)} hint={`${pauses.total_pause_s}s total`} />
-              <Stat label="Longest pause" value={`${pauses.longest_pause_s}s`} hint={`mean ${pauses.mean_pause_s}s`} />
-              <Stat
-                label="Speaking time"
-                value={`${Math.round(pauses.speaking_ratio * 100)}%`}
-                hint="of the time between first and last word"
-              />
-              {prosody?.syllable_rate != null && (
-                <Stat
-                  label="Speaking rate"
-                  value={`${prosody.syllable_rate} /s`}
-                  hint="syllables per second of speaking, measured"
-                />
-              )}
-              <Stat label="Segments" value={String(segments.length)} hint="each one sent to Gemma on its own" />
-              <Stat
-                label="Filler words"
-                value={String(result.filler_words.count)}
-                hint={`${result.filler_words.per_minute} per minute, as heard by Gemma`}
-              />
-            </CardContent>
-          </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Cadence</CardTitle>
+          <CardDescription>{formatTime(result.duration_s)} of audio</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-4">
+          <Stat label="Pauses" value={String(pauses.pause_count)} hint={`${pauses.total_pause_s}s total`} />
+          <Stat label="Longest pause" value={`${pauses.longest_pause_s}s`} hint={`mean ${pauses.mean_pause_s}s`} />
+          <Stat
+            label="Speaking time"
+            value={`${Math.round(pauses.speaking_ratio * 100)}%`}
+            hint="of the time between first and last word"
+          />
+          {prosody?.syllable_rate != null && (
+            <Stat
+              label="Speaking rate"
+              value={`${prosody.syllable_rate} /s`}
+              hint="syllables per second of speaking, measured"
+            />
+          )}
+          <Stat label="Segments" value={String(segments.length)} hint="each one sent to Gemma on its own" />
+          <Stat
+            label="Filler words"
+            value={String(result.filler_words.count)}
+            hint={`${result.filler_words.per_minute} per minute, as heard by Gemma`}
+          />
+        </CardContent>
+      </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Tonality</CardTitle>
-              <CardDescription>Pitch and loudness</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              {prosody ? (
-                <>
-                  <Stat
-                    label="Pitch variation"
-                    value={`${prosody.pitch_std_semitones} st`}
-                    hint="Measured pitch variation"
-                  />
-                  <Stat
-                    label="Pitch range"
-                    value={`${prosody.pitch_range_semitones} st`}
-                    hint={`${prosody.pitch_p5_hz.toFixed(0)}–${prosody.pitch_p95_hz.toFixed(0)} Hz`}
-                  />
-                  <Stat label="Median pitch" value={`${prosody.pitch_median_hz.toFixed(0)} Hz`} />
-                  <Stat
-                    label="Loudness variation"
-                    value={`${prosody.intensity_std_db} dB`}
-                    hint={`avg ${prosody.intensity_mean_db} dB`}
-                  />
-                </>
-              ) : (
-                <p className="text-muted-foreground col-span-2 text-sm">No voiced speech detected.</p>
-              )}
-            </CardContent>
-          </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tonality</CardTitle>
+          <CardDescription>Pitch and loudness</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-4">
+          {prosody ? (
+            <>
+              <Stat
+                label="Pitch variation"
+                value={`${prosody.pitch_std_semitones} st`}
+                hint="Measured pitch variation"
+              />
+              <Stat
+                label="Pitch range"
+                value={`${prosody.pitch_range_semitones} st`}
+                hint={`${prosody.pitch_p5_hz.toFixed(0)}–${prosody.pitch_p95_hz.toFixed(0)} Hz`}
+              />
+              <Stat label="Median pitch" value={`${prosody.pitch_median_hz.toFixed(0)} Hz`} />
+              <Stat
+                label="Loudness variation"
+                value={`${prosody.intensity_std_db} dB`}
+                hint={`avg ${prosody.intensity_mean_db} dB`}
+              />
+            </>
+          ) : (
+            <p className="text-muted-foreground col-span-2 text-sm">No voiced speech detected.</p>
+          )}
+        </CardContent>
+      </Card>
 
-          <Card className="min-w-0">
-            <CardHeader>
-              <CardTitle>Timeline</CardTitle>
-              <CardDescription>What Gemma heard in each segment</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {segments.map((segment) => {
-                const o = segment.observations;
-                return (
-                  <div key={segment.start_s} className="flex flex-col gap-1.5 border-b pb-4 last:border-0 last:pb-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium tabular-nums">
-                        {formatTime(segment.start_s)}–{formatTime(segment.end_s)}
-                      </span>
-                      {segment.pace && (
-                        <Badge variant="outline">
-                          {segment.pace} pace
-                          {segment.measurements?.syllable_rate != null && ` · ${segment.measurements.syllable_rate} syllables/s`}
-                        </Badge>
-                      )}
-                    </div>
-                    {o ? (
-                      <>
-                        {o.tone && <p className="text-muted-foreground text-xs">Tone: {o.tone}</p>}
-                        {o.observations && <p className="text-sm">{o.observations}</p>}
-                        {!!o.filler_words?.length && (
-                          <p className="text-muted-foreground text-xs">
-                            Filler words: {o.filler_words.join(", ")}
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <p className="text-muted-foreground text-sm">Gemma&apos;s reply for this segment did not parse.</p>
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle>Timeline</CardTitle>
+          <CardDescription>What Gemma heard in each segment</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {segments.map((segment) => {
+            const o = segment.observations;
+            return (
+              <div key={segment.start_s} className="flex flex-col gap-1.5 border-b pb-4 last:border-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium tabular-nums">
+                    {formatTime(segment.start_s)}–{formatTime(segment.end_s)}
+                  </span>
+                  {segment.pace && (
+                    <Badge variant="outline">
+                      {segment.pace} pace
+                      {segment.measurements?.syllable_rate != null && ` · ${segment.measurements.syllable_rate} syllables/s`}
+                    </Badge>
+                  )}
+                </div>
+                {o ? (
+                  <>
+                    {o.tone && <p className="text-muted-foreground text-xs">Tone: {o.tone}</p>}
+                    {o.observations && <p className="text-sm">{o.observations}</p>}
+                    {!!o.filler_words?.length && (
+                      <p className="text-muted-foreground text-xs">
+                        Filler words: {o.filler_words.join(", ")}
+                      </p>
                     )}
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        </>
-      )}
+                  </>
+                ) : (
+                  <p className="text-muted-foreground text-sm">Gemma&apos;s reply for this segment did not parse.</p>
+                )}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
     </div>
   );
 }

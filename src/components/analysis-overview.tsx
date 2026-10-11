@@ -24,7 +24,7 @@ function ScoreCard({ kind, score, insight, detail }: {
   detail: string;
 }) {
   const Icon = kind === "pitch" ? AudioLines : Layers;
-  const label = kind === "pitch" ? "Pitch delivery" : "Slide deck";
+  const label = kind === "pitch" ? "Pitch" : "Slide deck";
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
 
@@ -52,7 +52,7 @@ function ScoreCard({ kind, score, insight, detail }: {
         </div>
         <div className="overview-score-copy">
           <span className="overview-score-eyebrow">
-            {kind === "pitch" ? "How your pitch sounds" : "How your slides communicate"}
+            {kind === "pitch" ? "What you say and how it sounds" : "What your slides say and how they look"}
           </span>
           <p>{insight ?? "Open the full report to explore the analysis and feedback."}</p>
         </div>
@@ -66,7 +66,7 @@ export function AnalysisOverview({ results }: { results: Results }) {
   const { pitch, slides, alignment, sample } = results;
   const [section, setSection] = useState("pitch");
   const sections = [
-    ...(pitch ? [{ id: "pitch", label: "Pitch delivery", icon: AudioLines }] : []),
+    ...(pitch ? [{ id: "pitch", label: "Pitch", icon: AudioLines }] : []),
     ...(slides ? [{ id: "deck", label: "Slide deck", icon: Layers }] : []),
     ...(alignment !== undefined ? [{ id: "alignment", label: "Pitch + deck", icon: Sparkles }] : []),
     ...(!sample && alignment !== undefined && pitch?.file && slides?.file ? [{ id: "verdict", label: "Downloads", icon: FileText }] : []),
