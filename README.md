@@ -293,6 +293,8 @@ On a Kaggle GPU, for a laptop that cannot run Gemma: import `notebooks/kaggle.ip
 AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
 ```
 
+The last cell of the notebook keeps running and follows the branch. About every 30 seconds it fetches it, and when a push changed something under `services/audio` it installs a changed `requirements.txt` and restarts the service on the new code; it does not fetch while an analysis is running. The tunnel is left alone, so the URL stays the same until the Kaggle session ends, and `setup.code_sha256` in `GET <url>/health` tells which code is answering. While Gemma loads again the service does not answer. The loop was run on a laptop against a local git repository and a stand-in for the service, not yet on Kaggle.
+
 The page and the service have to be the same version: the page shows an error instead of results when the service behind it is older. With the Kaggle service the recording and the deck leave the laptop, through the tunnel, to Kaggle; that setup is for demonstrations on a machine that cannot run the model.
 
 `SLIDE_TOKENS` sets the visual tokens Gemma spends on one slide (70, 140, 280, 560 or 1120; default 560): more reads small text better and takes longer. `MAX_SLIDES` (default 20) caps how many pages of a deck are analyzed. `PITCH_TOPICS` replaces the eight expected topics with an event's own, as a JSON object of name to meaning, for example `{"problem": "what hurts, and for whom", "go-to-market": "how it reaches buyers"}`; both rubrics use it. The numbers criterion looks at the topics named `market` and `traction`, and is not rated when an event's list has neither. `SEGMENT_SECONDS` (default 20, at most 30) sets the longest audio segment.
