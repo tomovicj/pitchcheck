@@ -6,7 +6,7 @@
 
 A team uploads the recording of its pitch and its slide deck. Gemma 4 listens to the delivery, reads every slide and checks that the talk follows the deck. The team gets back a pitch score, a slide score, and concrete, timestamped feedback, all before a human reviewer sees the pitch. Everything runs on the organizer's own server, so no idea is sent to a third-party AI service.
 
-**▶ Demo video:** _coming soon on YouTube_ · **Pitch deck:** [docs/pitch-deck.pdf](docs/pitch-deck.pdf)
+**▶ Demo video:** [youtu.be/nCDLS87LJr8](https://youtu.be/nCDLS87LJr8) · **Pitch deck:** [docs/pitch-deck.pdf](docs/pitch-deck.pdf)
 
 ![PitchCheck landing page](docs/images/landing.png)
 
