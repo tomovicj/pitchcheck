@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.js
 
@@ -10,6 +10,7 @@
 
 # next.js
 /.next/
+.next/
 /out/
 
 # production
@@ -27,6 +28,7 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +41,11 @@ next-env.d.ts
 __pycache__/
 *.pyc
 .venv/
+
+# editors
+.idea/
+.vscode/
+
+# large media (the demo video is on YouTube)
+*.mp4
+*.mov

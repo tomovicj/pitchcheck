@@ -1,10 +1,10 @@
 name: Images
 
-# Builds the web and audio images on every push to main and publishes them to GHCR,
+# Builds the web and analysis images on every push to main and publishes them to GHCR,
 # so another machine can run the app with `docker compose pull`.
 # Each platform builds on its own native runner (emulating arm64 makes the torch install crawl),
 # pushes by digest, and the merge job joins the digests into one multi-platform tag.
-# The audio image is smoke-tested on both platforms before any tag moves.
+# The analysis image is smoke-tested on both platforms before any tag moves.
 on:
   push:
     branches: [main]
@@ -27,10 +27,10 @@ jobs:
         image:
           - name: web
             context: .
-            file: Dockerfile
-          - name: audio
-            context: services/audio
-            file: services/audio/Dockerfile
+            file: apps/web/Dockerfile
+          - name: analysis
+            context: services/analysis
+            file: services/analysis/Dockerfile
         platform:
           - name: linux/amd64
             arch: amd64
@@ -70,10 +70,10 @@ jobs:
       # Runs the published image end to end with a tiny random Gemma. A failure stops the merge
       # job, so latest and the sha tag never point at an image that cannot start.
       - name: Smoke test
-        if: matrix.image.name == 'audio'
+        if: matrix.image.name == 'analysis'
         run: >-
           docker run --rm
-          ghcr.io/${{ github.repository_owner }}/pitchcheck-audio@${{ steps.build.outputs.digest }}
+          ghcr.io/${{ github.repository_owner }}/pitchcheck-analysis@${{ steps.build.outputs.digest }}
           python -m scripts.smoke_test
 
       - name: Export digest
@@ -95,7 +95,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [web, audio]
+        image: [web, analysis]
     steps:
       - uses: actions/download-artifact@v8
         with:

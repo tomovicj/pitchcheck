@@ -1,10 +1,14 @@
+# Build context for apps/web/Dockerfile (the repository root)
 .git
-.next
-node_modules
+**/node_modules
+**/.next
+**/*.tsbuildinfo
+**/.env*
 npm-debug.log*
-.env*
-Dockerfile
-.dockerignore
 docker-compose.yml
-README.md
-services/
+.github
+docs
+notebooks
+services
+*.mp4
+*.md

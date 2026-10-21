@@ -1,26 +1,30 @@
 services:
   web:
     image: ghcr.io/tomovicj/pitchcheck-web:${TAG:-latest}
-    build: .
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
     ports:
       - "3000:3000"
     environment:
-      AUDIO_SERVICE_URL: http://audio:8000
+      ANALYSIS_SERVICE_URL: http://analysis:8000
     depends_on:
-      audio:
+      analysis:
         condition: service_healthy
     restart: unless-stopped
 
-  audio:
-    image: ghcr.io/tomovicj/pitchcheck-audio:${TAG:-latest}
-    build: ./services/audio
+  analysis:
+    image: ghcr.io/tomovicj/pitchcheck-analysis:${TAG:-latest}
+    build: ./services/analysis
     ports:
       - "8000:8000"
     environment:
-      GEMMA_MODEL: google/gemma-4-E2B-it # audio input: gemma-4-E2B-it | gemma-4-E4B-it | gemma-4-12B-it
+      GEMMA_MODEL: ${GEMMA_MODEL:-google/gemma-4-E2B-it} # audio input: gemma-4-E2B-it | gemma-4-E4B-it | gemma-4-12B-it
       GEMMA_DEVICE_MAP: ${GEMMA_DEVICE_MAP:-} # empty: auto on GPU, cpu otherwise
+      GEMMA_DTYPE: ${GEMMA_DTYPE:-auto} # float16 on GPUs without bf16, such as the T4
       SLIDE_TOKENS: ${SLIDE_TOKENS:-560} # visual tokens per slide: 70 | 140 | 280 | 560 | 1120
       MAX_SLIDES: ${MAX_SLIDES:-20} # pages of a deck that are analyzed
+      SEGMENT_SECONDS: ${SEGMENT_SECONDS:-20} # longest audio segment sent to Gemma, at most 30
       PITCH_TOPICS: ${PITCH_TOPICS:-} # the event's own topics as JSON, name to meaning; empty for the default six
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:

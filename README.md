@@ -1,345 +1,117 @@
 # PitchCheck
 
-PitchCheck gives hackathon and startup teams feedback on a pitch before a human reviewer sees it. A team uploads the recording of their pitch and the slide deck. Gemma analyzes both and returns a score for the slides, a score for the pitch, and concrete feedback on what to improve.
+**A privacy-first pitch checker for founders and event organizers, powered by Gemma 4.**
 
-Built for the GDG Belgrade DevFest hackathon, whose theme is "Reimagine the Event Experience with Gemma".
+🥉 **3rd place at the GDG Belgrade DevFest 2026 hackathon**, theme "Reimagine the Event Experience with Gemma".
 
-> **Status on 11 October 2026.** The app takes a recording of the pitch and the deck as a PDF. Gemma 4 E2B listens to the recording in segments of up to 20 seconds and reads every slide. It returns a pitch score, a slide score, insights and feedback, and a report on whether the talk follows the deck. The first version ran end to end with the real model, on synthetic material only: a text-to-speech voice and a deck made for the test. The scores now follow a stricter rubric built on Y Combinator's advice to founders. Its new Gemma step, the checklist, has run with the real model three times on the test files. In the last two runs it held up for the recording. For the deck it was rewritten after each run and has not run in its current form. Whether Gemma reliably hears tone of voice has not been tested on real recordings, and the rubrics have not been tried on real pitches. See [What is implemented](#what-is-implemented) and [TODO.md](TODO.md).
+A team uploads the recording of its pitch and its slide deck. Gemma 4 listens to the delivery, reads every slide and checks that the talk follows the deck. The team gets back a pitch score, a slide score, and concrete, timestamped feedback, all before a human reviewer sees the pitch. Everything runs on the organizer's own server, so no idea is sent to a third-party AI service.
 
-The page has one workspace with two upload cards. Each card runs its own check, and the "Check pitch + deck" button below them runs both and compares them. Selected recordings appear as compact file cards without a video preview. Results show up to five main metrics, including the pitch and slide scores; "SHOW MORE" opens the full reports and verdict downloads in a modal. A full report has the score of each group of criteria, the feedback, every criterion with the sentence it rests on, the checklist of expected topics, and the measurements. The event time-limit field hides once the pitch result is available. Design notes and component specifications for the landing page are in `docs/research/`.
+**▶ Demo video:** _coming soon on YouTube_ · **Pitch deck:** [docs/pitch-deck.pdf](docs/pitch-deck.pdf)
 
-## Requirements
+![PitchCheck landing page](docs/images/landing.png)
 
-These four are fixed.
+## The problem
 
-1. **Input is a pitch video and the slide deck.**
-2. **Gemma does the analysis.** Every score and every piece of feedback comes from a Gemma model.
-3. **The pitch is judged from its sound, not from a transcript.** Tone, emotion, energy and pacing live in the audio signal, and a transcript drops them. The audio itself goes into the model. The feedback describes how the delivery sounds (pace, pauses, filler words, pitch, loudness); it does not label the speaker's emotions or state of mind.
-4. **Output is two scores plus guidance:** a score for the slides, a score for the pitch, insights (what the analysis found) and feedback (what to change).
+Organizers spend hours on repetitive checks of last-minute pitches, right before deadlines. Founders get no quick feedback on their slides or on how their delivery sounds. In our survey, 10 of 14 respondents called this a big problem.
 
-The scores describe the deck and the delivery. They do not rate the business idea or its investment potential.
+## Three checks
 
-## What is implemented
-
-Read from the code on `main`. "Implemented" means it runs end to end with the real model, except where a row says it has not yet; none of it has been validated on real pitches.
-
-| Capability | State |
-| --- | --- |
-| Upload an audio or video recording; for video the audio track is extracted with ffmpeg | Implemented |
-| Live progress while the analysis runs | Implemented |
-| Pitch and loudness variation, measured from the signal with Praat | Implemented; sent to Gemma as supporting evidence |
-| Pauses, measured from the signal with Praat | Implemented |
-| Splitting the audio into segments of at most 20 seconds, cut at pauses | Implemented. Gemma accepts up to 30 seconds, but of a 27-second segment it returned only the first two thirds of what was said |
-| Speaking rate, measured from the signal as syllables per second of speaking | Implemented; tried on one synthetic voice at three speeds |
-| Gemma 4 E2B listens to each segment: tone of voice, filler words, and the statements the speaker makes | Implemented; not yet validated on real recordings (TODO section 1) |
-| Checklist for the pitch: Gemma gets the statements it heard as a numbered list and labels each with what it says: what the company does, one of the eight expected topics, or none | Ran with the real model on the test recording, twice: the labels held up both times. The first version, which asked for the statements behind each topic, had come back empty |
-| Gemma 4 E2B writes the insights and the feedback on the weakest criteria, lowest level first; an item that names none of them is dropped | Ran with the real model: right for the pitch (one item for each finding), mixed up for the deck (items under the wrong finding). Items are now tied by the finding's name; that has not run yet |
-| Pitch score from nine rubric criteria in two groups, content (opening, topic coverage, numbers, plain language) and delivery (pace, filler words, pauses, pitch variation, loudness), on levels 0 to 4, every level given in code | Written and checked without the model, on the observations saved from a real run; the rubric (`RUBRIC` in `services/audio/app/main.py`) has not been tried on real recordings |
-| Time criterion: the length of the recording against the event's time limit, when the team enters one | Implemented |
-| PDF deck upload; pages rendered to images; text size, words per slide, fonts, contrast, where the largest text sits and the size of the title measured from the file | Implemented; needs a PDF with a text layer for the measurements. PPTX is not accepted |
-| Gemma 4 E2B reads each slide: title, main point, one point or several, key points, legibility | Implemented |
-| Checklist for the deck: the same labels, one for each slide, from the title, the point and the key points Gemma read | Fourth version. Labelled line by line, the slide about the problem came out as "solution" and then as "traction" with the real model. With one label for a slide it got six of the eight slides of the test deck right and wrote "none" for the title slide and for the slide about the problem; the wording written after that has not run with it yet |
-| Slide score from eleven rubric criteria in two groups, content (title slide, topic coverage, numbers, plain language) and design (one message per slide, words per slide, text size, contrast, key text at the top, visual consistency, deck length), on levels 0 to 4, every level given in code | Written and checked without the model, on the test deck and the observations saved from a real run; the rubric (`RUBRIC` in `services/audio/app/deck.py`) has not been tried on real decks |
-| Results in two steps: an overview with both scores and up to five measurements, and "SHOW MORE" for the full reports in a modal: the score of each group, the feedback, the criteria with the standard behind each, the checklist with what was found for each topic, the insights, the measurements, the timeline and the slide notes | Implemented |
-| Check that the spoken pitch follows the deck: deck points the talk never explains, statements where the two disagree, recommendations | Implemented (`services/audio/app/alignment.py`); a report next to the two scores, not part of either. Reading the slides word for word is not checked |
-| Verdict for the organizer: after a combined check the team downloads a verdict (both scores, the level behind each criterion, a two-sentence summary, a fingerprint of each file) and a proof that opens the fingerprints | Implemented; see [Verdict](#verdict) |
-| `/verify`: the organizer checks a verdict against the files a team shows and against this installation's setup | Implemented in the browser. Comparing the scores means running the files through the main page by hand |
-| "See a sample result": shows a saved result without running an analysis | Out of order. `public/sample-check.json` is a real run of the combined check on the test recording and the test deck, made with the first rubric; the page does not show a result of another rubric and says the sample could not be loaded. It needs a new run with the current service |
-| Results stay on the page across a reload of the tab | Implemented with `sessionStorage`; the files themselves have to be chosen again |
-
-Whisper and the wav2vec2 emotion classifier have been removed. Every judgement and every piece of feedback comes from Gemma; Praat and the PDF supply measurements only.
-
-### How the scores are built
-
-Each score comes from a rubric: a list of criteria, each with a description for every level from 0 to 4. Since 11 October 2026 the rubrics follow Y Combinator's published advice to founders, and they are stricter than the first version: on the test pair, the pitch went from 90 to 65 and the deck from 75 to 60 when the saved observations were rated again (with a stand-in for Gemma's checklist answers, so those two numbers show the arithmetic, not a run of the model).
-
-The criteria sit in two groups, and the score is arithmetic over the levels, in steps of 5.
-
-| Score | Group | Criteria |
+| Deck check | Pitch check | Sync check |
 | --- | --- | --- |
-| Pitch | Content, 60% | Opening (says what the company does in the first 20 seconds), topic coverage (counts three times), numbers (market and traction stated with a number; counts twice), plain language |
-| Pitch | Delivery, 40% | Pace, filler words, pauses, pitch variation, loudness, and time when the team enters the event's limit |
-| Slides | Content, 50% | Title slide (the first slide says what the company does), topic coverage (three times), numbers (twice), plain language |
-| Slides | Design, 50% | One message per slide, words per slide, text size, contrast, key text at the top, visual consistency, deck length |
+| Title slide, expected topics, numbers, plain language | Opening, expected topics, numbers, plain language | Deck points the speaker never explained |
+| One message per slide, words per slide, text size, contrast, key text at the top, deck length | Pace, filler sounds, pauses, pitch variation, loudness | Statements that contradict the slides |
+| Feedback by slide number | Feedback with timestamps, and time against the event's limit | Recommendations |
 
-The expected topics are the questions Y Combinator tells founders to answer: problem, solution, market, traction, unique insight, business model, team and the ask. A criterion that cannot be rated drops out of its group. A group with nothing rated leaves no score, so a pitch is never scored on delivery alone.
+The rubrics follow Y Combinator's published advice to founders. Scores rate the **deck and the delivery, never the business idea**. The pitch is judged from the audio signal itself, not from a transcript. PitchCheck describes how the delivery sounds and does not label the speaker's emotions.
 
-**Code gives every level.** Gemma supplies what is counted. It listens to each segment and reads each slide, and then gets the statements it heard or read back as a numbered list and gives each one a label: the expected topic the statement says, or none. A topic with no statement counts as missing, and market and traction count as stated with a number only when a statement about them carries one. What counts for a topic is always something Gemma heard or read. When no statement gets a label at all, the reply is treated as unusable and there is no score, so that a failed reply does not pass for a pitch that says nothing. Gemma then writes the insights and the feedback from the rated findings.
+After a combined check, a team can download a **verdict** for the organizer: both scores and a salted fingerprint of each file. On `/verify` the organizer can later check that a finalist shows the same files. See [docs/verdict.md](docs/verdict.md).
 
-Two things led here. Gemma did not apply numeric limits reliably when asked to: it rated 5.7 filler words a minute as "5 or fewer", and a pitch with two expected topics missing as complete. And a level given from an impression is the less steady kind of judgement: CheckEval (Lee et al., EMNLP 2025, [arXiv:2403.18771](https://arxiv.org/abs/2403.18771)) reports that splitting a criterion into yes-or-no questions raised agreement between evaluator models and lowered the variance of their scores. In the first version Gemma gave three levels itself (structure of the pitch, structure and visual consistency of the deck); those criteria are now counts.
+<table>
+  <tr>
+    <td><img src="docs/images/upload.png" alt="Upload cards for the recording and the deck"></td>
+    <td><img src="docs/images/pitch-score.png" alt="Pitch score overview"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/pitch-report.png" alt="Full pitch report with content and delivery scores"></td>
+    <td><img src="docs/images/deck-report.png" alt="Deck report with criteria and their sources"></td>
+  </tr>
+</table>
 
-**What the first run with the real model showed.** On 11 October 2026 the combined check ran on a Kaggle T4 with the test recording and the test deck, in 5 minutes 18 seconds. Gemma heard and read the statements as before. The checklist was then asked the other way round, "for each topic, give the numbers of the statements that say it", and it came back empty for all nine items, for the pitch and for the deck. With every topic counted as missing the pitch scored 45 and the deck 40, which is wrong: both say most of the topics. That prompt showed the shape of the reply with empty lists, and the reply was not kept, so whether Gemma gave the shape back is a guess.
-
-The question is now a label for each statement, the kind Gemma answered sensibly in the first version when it named the topics of each segment. The shape in the prompt cannot pass for an answer, and every statement comes back in the result with its label (`labelled` in the summary), so a wrong label can be seen.
-
-**The second run**, the same day and on the same files, in 5 minutes 11 seconds. Gemma labelled every statement.
-
-- Pitch, 20 statements: the labels hold up. It found the problem, the product, the customers, the business model and the ask, and found no traction, no team and no unique insight, which is what the test pitch says. Two labels are arguable (a sentence about what organizers fix today got "solution"; "Who buys it?" got "market" though it is a question). The pitch scored 60: content 40, delivery 90.
-- Deck, 31 lines: two labels were wrong in a way that cost points. The four lines of the slide about how organizers work today got "solution", the label of the slides around it, so the problem counted as missing. And the tagline on the title slide got "solution" and no line got "what it does", so the title slide rated 0. The deck scored 55.
-- Feedback: with the signal measurements in its prompt, Gemma advised fewer filler words at one a minute, which is the top level, and a higher "voiced share of frames".
-
-What changed after it: the labelling prompt carries a worked example from another company, with a statement about how things are today labelled as the problem. "What it does" and "solution" are read together: the first statement about the product is where a pitch or a deck says what it does, and the product counts as explained when there is more than that one. A slide title of one or two words is not offered for labelling. And the feedback prompt gets the weakest criteria as numbered findings and no measurements; an item that answers no finding is dropped, and each item on the page names the criterion it is about.
-
-**The third run**, again the same files, in 5 minutes 11 seconds.
-
-- Pitch: the same labels as in the second run and the same score, 60. The feedback was three items, one for each finding, in order.
-- Deck: the title slide was found. The slide about how organizers work today was mislabelled again, line by line: two lines "traction", two "solution". So the problem still counted as missing, and "Organizers review 50 decks in two days" counted as traction with a number. The deck scored 70, with a wrong reason on both sides.
-- Deck feedback: asked for the number of the finding each item answers, Gemma numbered its six items one to six, and its advice on word count ended up under "Numbers".
-
-What changed after it: a slide is labelled as a whole, from its title, its point in a sentence and its lines, with one label for a slide. A bullet such as "Organizers review 50 decks in two days" says too little alone; with the whole slide in view Gemma put the main topics of this deck on the right slides in the first version of the rubric. The statements of the speaker are still labelled one by one. On a slide a number is a figure, so that "two developers" on a team slide is not one. And feedback is tied to a finding by the finding's name, which can be checked, where a number could not.
-
-**The fourth run**, again the same files, in 5 minutes 17 seconds.
-
-- Pitch: the same labels as in the second and the third run and the same score, 60 (content 40, delivery 90).
-- Deck: with one label for a slide, slides 3 to 8 came out right: solution, market, business model, unique insight, team, ask. Slides 1 and 2, the title slide and the slide about how organizers work today, came out as "none". So the problem counted as missing again, the title slide rated 2 of 4 because the first slide about the product was the third, and the deck scored 50 (content 30, design 65).
-- The result could not tell why. A slide shows as "none" when Gemma wrote none, when it wrote a label that code cannot read, and when its reply left the slide out. A run of the deck alone, with the reply kept, showed that Gemma had written "none" for both.
-
-What changed after it: each summary keeps Gemma's replies to the labelling prompt as it wrote them (`label_replies`). And the line for "none" and the advice under the labels are worded for a deck apart from a talk. The two slides have a title that names no topic ("PitchCheck", "Organizers review 50 decks in two days"), and "none" took any slide "that fits no line above". For a deck, "none" is now a slide that only closes the deck, and the advice says to go by the whole slide and not by its title, that a first slide with the name and a line on what the company makes is "what it does", and that a slide about how things are today is the problem even when it does not use the word. The price is that a slide which fits no topic, an agenda or a roadmap, is pushed towards the closest one. The prompt for a talk did not change: built from the statements of this run it is the same, character for character.
-
-**What is not tested.** The wording for a deck written after the fourth run has not run with the real model, so whether it cures the two wrong labels is not known. Nothing has been tried on a real pitch or a real deck.
-
-#### Where the standards come from
-
-Read on 11 October 2026. Each result shows, next to every criterion, the sentence it rests on and what level 4 takes.
-
-| Source | What the rubrics take from it |
-| --- | --- |
-| Michael Seibel, [How to Pitch Your Company](https://www.ycombinator.com/library/4b-how-to-pitch-your-company) | The seven questions a pitch answers; "eliminate jargon, acronyms, marketing speak, and any ambiguous terms such as 'platform'" |
-| Geoff Ralston, [A Guide to Demo Day Presentations](https://www.ycombinator.com/blog/guide-to-demo-day-pitches) | Say what you do first; the problem and the product; bottom-up numbers; speak slowly, pause, no monotone, project; one point per slide, few words, important text at the top |
-| Aaron Harris, [How to build your seed round pitch deck](https://www.ycombinator.com/library/2u-how-to-build-your-seed-round-pitch-deck) | The slides of a seed deck, from the title slide with a one-line description to the ask; "Make the numbers clear and meaningful" |
-| Kevin Hale, [How to design a better pitch deck](https://www.ycombinator.com/library/4T-how-to-design-a-better-pitch-deck) | Legible, simple, obvious: large type, good contrast, one idea per slide |
-
-Y Combinator gives almost no numbers, so the limits that turn a standard into levels are this team's choice, and the code says so next to each one. Three limits come from elsewhere: the filler word levels end at the two rates one study tested (Laske and DiGennaro Reed 2024, in English: 5 a minute did no harm, 12 did), the contrast limit is WCAG 2.2, and the smallest text is 24 pt on a standard slide, the minimum [Penn State's accessibility guidance](https://accessibility.psu.edu/legibility/fontsize) gives for slides projected to an audience. Visual consistency is not in Y Combinator's guides at all; it is kept from the first version of the rubric.
-
-What changed in the limits: a slide is marked from 40 words (was 60) and from text under 24 pt (was 18 pt), a segment counts as fast from 5.0 syllables a second (was 5.5), filler words reach the top level at 2 a minute (was 5), and a pitch with fewer than 3 pauses a minute is marked. The shares of marked slides, or of marked time, that separate the levels are 10%, 25% and 50%; they were 15%, 35% and 60% for slides and 20%, 50% and 100% for time.
-
-Plain language is a count of marketing and jargon words from a short fixed list (`BUZZWORD` in `services/audio/app/rubric.py`), in English only. It marks "platform" and "AI-powered"; it does not recognise jargon that is not on the list.
-
-### What Gemma did not hear
-
-One test, on 11 October 2026, with a text-to-speech voice. The same 56 words were spoken at three rates: 124, 169 and 343 words a minute. Gemma 4 E2B got each clip through the per-segment prompt, once with the audio alone and once with the signal measurements in the prompt.
-
-| Clip | Gemma's pace, audio alone | Gemma's pace, with measurements | Measured speaking rate |
-| --- | --- | --- | --- |
-| 124 words a minute | conversational | conversational | 3.49 syllables a second |
-| 169 words a minute | conversational | conversational | 4.23 syllables a second |
-| 343 words a minute | conversational | conversational | 7.05 syllables a second |
-
-Gemma's description of the tone was nearly the same sentence for all three clips, and it listed the word "like" in "like tiny fonts" as a filler word every time. So pace is no longer asked of Gemma. It is measured from the signal: syllables are counted as voiced peaks in loudness (de Jong and Wempe 2009) and divided by the seconds of speaking. A segment under 2.7 syllables a second counts as slow and one over 5.0 as fast. Those limits are a convention: on a line through the three clips above they are about 75 and 215 words a minute for this voice, and they have not been checked on human voices. The fast limit is the tighter one because Y Combinator's advice is to speak slowly.
-
-The test says nothing about tone: a synthetic voice at three speeds does not change its tone. Whether Gemma hears flat against lively delivery is still open, and it needs human recordings (TODO section 1).
-
-Pauses, pitch variation and loudness had been rated by Gemma from the sound and the measurements in its prompt. On the same steady synthetic voice it gave loudness level 3 in one run and level 2 in the next. Those three are now rated in code as well, from the measurements alone, with limits the team chose: a pause over 2 seconds is long, a segment whose pitch varies by under 2 semitones is even, a segment 6 dB quieter than the whole recording is quiet, and a segment whose loudness swings by over 9 dB is uneven. None of the four has a study behind it. What Gemma does for the pitch is hear the filler sounds and the statements, say which statements explain each expected topic, and write the insights and the feedback from the rated findings.
-
-Only sounds that fill a pause (um, uh, er, hmm) are counted as filler words. Gemma also listed words such as "like" and "so" where they were part of the sentence, so words are left out of the count.
-
-The rubrics rate what is said and what can be heard, seen or measured. They have no criterion for emotion, confidence, accent or pronunciation, and the results cards say so. Y Combinator's advice also covers things the product cannot see or hear in its input, such as facing the audience, standing still and practising; those are left out. Where each standard and each limit comes from is in "Where the standards come from" above, in the code, and next to every criterion on the results cards.
-
-## Architecture
+## How it works
 
 ```mermaid
 flowchart LR
   user([Team]) -->|recording, PDF deck| web
 
-  subgraph browser [Browser]
-    web[Next.js page<br/>upload cards, results]
+  subgraph webapp [apps/web: Next.js]
+    web[Upload cards, results, /verify]
+    api[Route handlers<br/>/api/analyze, /api/deck, /api/check]
+    web --> api
   end
 
-  web -->|multipart upload, NDJSON progress| api[Next.js route handlers<br/>/api/analyze, /api/deck, /api/check]
-  api -->|streams the upload| service
+  api -->|streams the upload, relays NDJSON progress| service
 
-  subgraph service [Analysis service: FastAPI]
+  subgraph service [services/analysis: FastAPI]
     direction TB
-    ffmpeg[ffmpeg<br/>audio to 16 kHz mono] --> praat[Praat<br/>pauses, pitch, loudness]
-    praat --> segments[Segments of up to 30 s]
+    ffmpeg[ffmpeg<br/>audio to 16 kHz mono] --> praat[Praat<br/>pace, pauses, pitch, loudness]
+    praat --> segments[Segments of up to 20 s]
     pdf[pdfium<br/>page images, text size, fonts, contrast] --> slides[Slides]
     segments -->|audio + measurements| gemma
-    slides -->|image + file text| gemma
+    slides -->|image + page text| gemma
     gemma[Gemma 4 E2B<br/>Hugging Face Transformers] --> rubric[Rubrics<br/>levels 0-4, scores 0-100]
-    gemma --> align[Alignment<br/>talk against deck]
+    gemma --> align[Sync check<br/>talk against deck]
   end
 ```
 
-The only AI model is Gemma 4 E2B, a Google open model, run locally through Hugging Face Transformers. One model instance serves audio, slide images and text, and one analysis runs at a time.
+1. ffmpeg extracts the audio track. Praat measures pace, pauses, pitch and loudness from the signal.
+2. The audio is cut at pauses into segments of up to 20 seconds. Gemma listens to each segment and reports the filler sounds and the statements made.
+3. Each slide is rendered to an image and measured from the PDF. Gemma reads the slide's title, its point and its key points.
+4. Gemma labels each statement and each slide with the expected topic it covers. Code turns those counts and the measurements into rubric levels, and Gemma writes the insights and the feedback.
+5. Gemma compares the slides with the talk.
 
-## Verdict
+Gemma 4 E2B is the only AI model on the analysis path. The full write-up covers the pipeline, the scoring, where every standard comes from and what Gemma could and could not hear: see [docs/how-it-works.md](docs/how-it-works.md).
 
-An event can ask for the result of the check and not for the recording or the deck. After a combined check the results page offers two files.
-
-- **The verdict** goes to the organizer. It holds both scores, the level and the reason for each criterion, the two-sentence summary of what the team builds, how much of the deck the talk covers, and the setup that produced it (model, dtype, and a hash over the service's code, which contains every prompt, rubric and limit). It does not hold the feedback, the timeline, the slide notes or the files.
-- **The proof** stays with the team. It holds two random salts.
-
-For each file the verdict carries SHA-256(salt + file). The salt is random per analysis and is made by the service, so the fingerprint says nothing about the file, and the same deck gives a different fingerprint every time. When the organizer asks a finalist to show the recording and the deck, the team hands over the proof with them, and `/verify` checks in the browser that these are the files the verdict was made for and that the verdict came from the same setup as the organizer's installation. The organizer can then run the files through the main page and compare the scores.
-
-What this does and does not give:
-
-- It makes a swapped file or a verdict for another file show up at the check. It does not stop a team from editing a verdict; an edited score shows up only when the organizer re-runs the analysis.
-- Scores from a re-run are expected to be close, not always identical: the same model can give different levels on different hardware or dtype. How wide that band is on real hardware has not been measured.
-- It does not show which of several attempts a team handed in.
-- The verdict is not anonymous: the summary says what the team builds.
-
-None of this is cryptographic proof of an honest analysis, and the app does not call it that.
-
-## Pipeline
-
-All seven steps are built, shaped by the Gemma limits in the next section.
-
-1. The team uploads the pitch video and the deck as a PDF.
-2. ffmpeg extracts the audio track as 16 kHz mono.
-3. The audio is split into segments of at most 20 seconds. Gemma accepts clips of up to 30 seconds; shorter ones made it keep all of what was said.
-4. For each segment, Gemma receives the audio together with signal measurements for that segment (pitch variation, loudness variation, speaking rate, pauses). It returns structured observations about delivery (tone of voice, filler words) and the statements the speaker made.
-5. Deck pages are rendered to images and measured from the file. Gemma reads each page image, with the page's text from the file, for its title, its point and its key points.
-6. For the pitch and for the deck, Gemma gets the statements it heard or read as a numbered list and labels each with the expected thing it says, or with none. Code gives every level from that and from the measurements, and the two scores come out of the rubrics. Gemma then writes the insights and the feedback from the rated findings.
-7. Gemma compares the key points of the slides with the key points of the speech: deck points the speaker never explained, and statements that contradict the slides. Summarizing a slide or adding explanation is not a finding.
-
-The analysis service has one endpoint for each use: `/analyze/stream` for a recording, `/deck/stream` for a deck, and `/check/stream` for both with the comparison.
-
-## What the Gemma documentation confirms
-
-Checked on 10 October 2026.
-
-| Fact | Consequence for PitchCheck |
-| --- | --- |
-| Audio input exists in Gemma 3n and in Gemma 4 E2B, E4B and 12B Unified. Gemma 4 26B A4B and 31B do not take audio. | The model must be one of the audio-capable variants. Gemma 4 E2B is the default (`GEMMA_MODEL`). |
-| One audio clip is at most 30 seconds, 16 kHz, single channel, 25 tokens per second in Gemma 4. | A pitch of several minutes has to be segmented and the results combined. |
-| Documented audio tasks are speech recognition and speech translation. Emotion, tone and prosody are not mentioned as a capability or as a limitation. | Requirement 3 depends on behavior the documentation does not promise. It has to be tested on real recordings first. |
-| Video is processed as image frames, up to 60 seconds at one frame per second. | Video frames are not part of the plan; the recording is used for its sound. |
-| Image input covers document and PDF parsing, OCR and chart comprehension, with a visual token budget of 70 to 1120 per image. | Slides can be sent as page images. |
-| Gemma 4 is released under Apache 2.0. | No license obstacle to local use. |
-
-Sources: [Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) (updated 30 July 2026), [Gemma audio understanding](https://ai.google.dev/gemma/docs/capabilities/audio) (updated 10 October 2026), [Welcome Gemma 4](https://huggingface.co/blog/gemma4) on Hugging Face.
-
-The only official code example for audio uses Hugging Face Transformers (`AutoProcessor` with `AutoModelForMultimodalLM`). Third-party guides report that recent Ollama versions accept audio for Gemma 4 and that llama.cpp does not; neither claim was checked against an official source.
-
-## Running it
-
-With Docker:
+## Quick start
 
 ```bash
+cp .env.example .env      # optional: HF_TOKEN, model, limits
 docker compose up --build
 ```
 
-The web app is on http://localhost:3000 and the audio service on http://localhost:8000. The first start downloads the Gemma weights (several GB), which can take a while. If Hugging Face asks for the Gemma license to be accepted, export `HF_TOKEN` before starting.
+The web app runs on http://localhost:3000 and the analysis service on http://localhost:8000. The first start downloads the Gemma weights, which are several GB.
 
-From prebuilt images, on a machine that should not build them: every push to `main` publishes both images to GitHub Container Registry (`.github/workflows/images.yml`) for `linux/amd64` and `linux/arm64`, so they run natively on x86 machines and on Apple Silicon. The images are public, so no login is needed. Copy `docker-compose.yml` over, and pull:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Images are tagged `latest` and `sha-<short commit>`; set `TAG=sha-abc1234` to run a specific build. Try Gemma on one clip with `docker compose exec audio python -m scripts.probe <file>` after copying the file into the container (`docker compose cp clip.wav audio:/tmp/clip.wav`). Add `--audio-only` to leave the signal measurements out of the prompt and see what Gemma hears on its own.
-
-If the app does not start, check `docker compose ps -a` and
-`docker compose logs --tail=100 audio`. The web container waits for the audio
-service to become healthy. Older audio images can fail with
-`AnyToAnyPipeline requires the librosa library`; the dependency is now included
-in `services/audio/requirements.txt`. To repair a pulled image from this checkout:
-
-```bash
-docker compose build audio
-docker compose up -d --no-build --pull never
-```
-
-This keeps the downloaded model weights in the `models` volume. Pulling again
-replaces the local image, so use the repaired image until an updated image is
-published to the registry. Startup readiness confirms that Gemma loaded; it does
-not verify the quality or speed of pitch analysis.
-
-If analysis stays at **5% / Gemma is listening**, that percentage does not move
-until the first audio segment finishes. Check `docker compose logs -f audio`:
-the service logs the segment and the time for each Gemma call. `/health` also
-reports `analysis_running` and `model_devices`. Only one analysis runs at a time;
-another request receives HTTP 429 instead of competing for model memory.
-Generation logs report the time to the first output token, progress every 32
-output tokens, and the final token count. A long wait for the first token points
-to input processing; slow progress afterward points to text generation. These
-diagnostics log counts and timings, not the model's text or the recording.
-
-On a machine with enough available RAM, set `GEMMA_DEVICE_MAP=cpu` in `.env`
-and recreate the audio container with `docker compose up -d --no-build --pull never`.
-This keeps the full model in RAM instead of automatically offloading layers to
-disk. E2B has roughly 10.2 GB of weights and needs additional memory for inference;
-do not use this setting on a Docker VM with too little RAM. The default remains
-`auto` for other machines. Docker on this Mac runs CPU-only inference.
-
-A local diagnostic on an Apple M5 with 16 GB RAM and a Docker VM with 11.67 GiB
-used one second of silence and at most eight output tokens: automatic CPU/disk
-placement took 22.4 s; full CPU placement took 7.5 s. This is a short inference
-benchmark, not a delivery-quality test or an end-to-end pitch timing. Start with
-one short spoken clip and wait for it to finish before submitting another.
-
-On 11 October, a roughly 24-second spoken recording reached the scoring stage:
-the first Gemma audio call completed in 480 s and its JSON parsed on the first
-attempt. The browser advanced from 5% to 90%. This run overlapped an audio-image
-rebuild, so the timing includes competing build work. It confirms that waiting
-at 5% can be slow inference rather than a failed request; it does not establish
-delivery accuracy or a clean performance baseline.
-
-Without Docker, in two terminals:
-
-```bash
-pnpm install
-pnpm dev
-```
-
-```bash
-cd services/audio
-pip install -r requirements.txt
-uvicorn app.main:app --port 8000
-```
-
-The audio service needs Python 3.12 and ffmpeg on the PATH. The web app reaches it through `AUDIO_SERVICE_URL`, which defaults to `http://localhost:8000`.
-
-If `pnpm dev` keeps serving old styles or old code after a `git pull`, the dev server missed a file change. That happened with the repository inside a OneDrive folder on Windows: files replaced on disk, as git and some editors do, were not noticed until a restart. Put `NEXT_WATCH_POLL_MS=1000` in `.env.local` to make the dev server poll for changes. Polling costs CPU, so leave it off where file events work.
-
-`GEMMA_DTYPE` sets the dtype the model is loaded in. The default `auto` uses the checkpoint's bf16; GPUs without bf16, such as the T4, need `float16`.
-
-On a Kaggle GPU, for a laptop that cannot run Gemma: import `notebooks/kaggle.ipynb` into Kaggle, follow its first cell (GPU, Internet, `HF_TOKEN` secret) and run all cells. It clones the branch named in `BRANCH` (default `main`) from GitHub, starts the audio service and prints a Cloudflare tunnel URL. Run the web app locally against it:
-
-```bash
-AUDIO_SERVICE_URL=https://<printed-url> pnpm dev
-```
-
-The last cell of the notebook keeps running and follows the branch. About every 30 seconds it fetches it, and when a push changed something under `services/audio` it installs a changed `requirements.txt` and restarts the service on the new code; it does not fetch while an analysis is running. The tunnel is left alone, so the URL stays the same until the Kaggle session ends, and `setup.code_sha256` in `GET <url>/health` tells which code is answering. While Gemma loads again the service does not answer. The loop was run on a laptop against a local git repository and a stand-in for the service, not yet on Kaggle.
-
-A long request through the quick tunnel does not always survive. On 11 October 2026 three of five combined checks lost their connection two to three minutes in, twice through the web app and once straight against the tunnel, while the service went on and finished the analysis; `/health` answered throughout. The result of such a check is lost, because the service keeps nothing. Why the connection drops is not known.
-
-The page and the service have to be the same version: the page shows an error instead of results when the service behind it is older. With the Kaggle service the recording and the deck leave the laptop, through the tunnel, to Kaggle; that setup is for demonstrations on a machine that cannot run the model.
-
-`SLIDE_TOKENS` sets the visual tokens Gemma spends on one slide (70, 140, 280, 560 or 1120; default 560): more reads small text better and takes longer. `MAX_SLIDES` (default 20) caps how many pages of a deck are analyzed. `PITCH_TOPICS` replaces the eight expected topics with an event's own, as a JSON object of name to meaning, for example `{"problem": "what hurts, and for whom", "go-to-market": "how it reaches buyers"}`; both rubrics use it. The numbers criterion looks at the topics named `market` and `traction`, and is not rated when an event's list has neither. `SEGMENT_SECONDS` (default 20, at most 30) sets the longest audio segment.
-
-On one machine the results of the first rubric repeated. On the laptop CPU the test recording gave the same levels, score, statements and feedback text in two runs, and the test deck the same levels and score in four. This has not been measured again since the rubric changed. Across machines they can differ; that has not been measured.
-
-Measured on one laptop CPU (16 threads, 12 GB for the Docker VM, bf16 weights): a 31-second recording takes about 4 minutes, an 8-slide deck about 13 minutes at 50 to 80 seconds per slide, and the combined check of a one-minute recording with that deck took 16 to 19 minutes in five runs. On a Kaggle T4 the 31-second recording took 64 seconds, and the combined check of the one-minute recording with the 8-slide deck took 5 minutes 18 seconds under the new rubric. These are single runs on one machine, not benchmarks.
+To run it without Docker, from prebuilt images, or on a Kaggle GPU, and for troubleshooting, see [docs/deployment.md](docs/deployment.md).
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
-| `src/app/page.tsx` | The landing page |
-| `src/components/pitch-workspace.tsx` | Owns the two files, runs the three checks and lays out the results |
-| `src/components/analysis-overview.tsx`, `analysis-overview.css` | Compact results overview and modal with the full reports and verdict downloads |
-| `src/components/audio-analyzer.tsx`, `deck-uploader.tsx`, `combined-pitch-check.tsx` | The recording card, the deck card and the combined button |
-| `src/components/pitch-results.tsx`, `deck-results.tsx`, `alignment-results.tsx` | The results views |
-| `src/components/verdict-card.tsx`, `src/lib/verdict.ts` | Builds and downloads the verdict and the proof after a combined check |
-| `src/app/verify/page.tsx`, `src/components/verdict-checker.tsx` | The organizer's page: checks a verdict against the files a team shows |
-| `src/app/api/analyze`, `api/deck`, `api/check` | Route handlers; each streams the upload to the analysis service through `src/lib/proxy-upload.ts` and relays its progress events |
-| `src/app/api/health` | The analysis service's status and setup, for `/verify` |
-| `src/lib/analysis.ts` | Types for the analysis results and progress events |
-| `services/audio/app/main.py` | FastAPI service: loads Gemma, analyzes the recording (decode, measure, split, Gemma per segment, pitch rubric) and serves the endpoints |
-| `services/audio/app/deck.py` | Deck analysis: PDF rendering and measurements, Gemma per slide, deck rubric |
-| `services/audio/app/alignment.py` | Compares the key points of the slides with the key points of the speech |
-| `services/audio/app/rubric.py` | Shared by both rubrics: the expected topics, the sources of the standards, the checklist prompt and its validation, the list of marketing words, the 0 to 100 score |
-| `services/audio/scripts/probe.py` | Runs the per-segment Gemma prompt on one clip of 30 s or less, with or without the signal measurements, for testing what Gemma hears |
-| `services/audio/scripts/smoke_test.py` | Runs the service end to end with a tiny random Gemma 4; CI runs it in the audio image before tagging |
-| `docker-compose.yml` | The `web` and `audio` services |
-| `notebooks/kaggle.ipynb` | Runs the audio service on a Kaggle GPU behind a Cloudflare tunnel |
+| `apps/web` | Next.js app: the landing page, upload workspace, results, `/verify`, and the API routes that proxy to the analysis service |
+| `apps/web/src/lib` | Result types, streaming upload proxy, verdict building, results store |
+| `apps/web/tests` | Node tests for the client side of the analysis stream (`pnpm test`) |
+| `services/analysis/app/main.py` | FastAPI service: loads Gemma, analyzes the recording and serves `/analyze/stream`, `/deck/stream`, `/check/stream` and `/health` |
+| `services/analysis/app/deck.py` | Deck analysis: PDF rendering and measurements, Gemma per slide, deck rubric |
+| `services/analysis/app/alignment.py` | Sync check between the slides and the speech |
+| `services/analysis/app/rubric.py` | Expected topics, sources of the standards, the labelling checklist, the 0–100 score |
+| `services/analysis/scripts` | `probe.py` tries the segment prompt on one clip; `smoke_test.py` runs the service end to end with a tiny random Gemma (CI) |
+| `notebooks/kaggle.ipynb` | Runs the analysis service on a Kaggle GPU behind a Cloudflare tunnel |
+| `docs/` | Pitch deck, technical write-up, deployment, verdict, limitations, design notes |
 
 ## Privacy
 
-PitchCheck is privacy first: a startup should not have to send its idea to someone else's server to get feedback. For competitions, the web app, the analysis service and Gemma all run on the organizer's server, and recordings and decks are never sent to an outside AI provider. The landing page states this beside the upload cards, in the FAQ and in the footer.
+A startup should not have to send its idea to someone else's server to get feedback. In a competition deployment, the web app, the analysis service and Gemma all run on the organizer's server. The recording and the deck go from the browser to the analysis service and nowhere else. They are held in memory and in a temporary file for one analysis, and nothing is stored afterwards. The only outside traffic is the one-time download of the model weights from Hugging Face. The Kaggle notebook is a development option, and with it the files do leave the machine.
 
-The recording and the deck go from the browser to the analysis service named in `AUDIO_SERVICE_URL` and nowhere else. The service keeps them in memory and in a temporary file for the length of one analysis and stores nothing afterwards. With Docker Compose both services run on the same machine, and the only outside traffic is the download of the model weights from Hugging Face on first start.
+## Status
 
-The Kaggle notebook is a development option: with it the files leave the machine. Competition deployments must run the analysis service and Gemma on the organizer's server to keep the privacy promise. On a laptop CPU the model fits in 12 GB but a full check of a pitch and a deck takes tens of minutes, so the organizer's server needs a GPU to make the wait short.
+PitchCheck is a hackathon project. It runs end to end with the real model, but only on synthetic test material. The rubrics have not been validated on real pitches, and whether Gemma hears tone of voice is still untested. See [docs/limitations.md](docs/limitations.md) for what is open.
+
+## Team
+
+- Jovan Tomović
+- Darko Trifunoski
+- Petar Popović
+- Djordje Žerajić
+
+## License
+
+The code is released under the [MIT License](LICENSE). Gemma 4 is a Google model, released under Apache 2.0, and is downloaded separately at first start.
